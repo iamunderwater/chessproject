@@ -4,25 +4,114 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chess Game</title>
+
 <style>
-body{background:#0d0d0d;color:#fff;font-family:sans-serif;
-display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:10px}
-.chessboard{display:grid;grid-template-columns:repeat(8,50px);grid-template-rows:repeat(8,50px);
-width:400px;height:400px;box-shadow:0 0 20px #333;border-radius:6px;transition:transform .4s}
-.square{display:flex;align-items:center;justify-content:center}
-.light{background:#f0d9b5}.dark{background:#b58863}
-.piece-img{width:45px;height:45px;user-select:none;pointer-events:none}
-.flipped{transform:rotate(180deg)}
-.flipped .square{transform:rotate(180deg)} /* keeps pieces upright */
-.timer-box{font-size:22px;font-weight:bold;background:#111;padding:6px 18px;border-radius:10px;
-box-shadow:0 0 10px #00ffff70}
-#popup{position:fixed;inset:0;background:rgba(0,0,0,.8);
-display:none;align-items:center;justify-content:center;z-index:10}
-#popup.show{display:flex}
-#popup-content{background:#222;padding:30px 50px;border-radius:15px;text-align:center}
+body {
+  background:#0d0d0d;
+  color:#fff;
+  font-family:sans-serif;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:100vh;
+  flex-direction:column;
+  gap:10px;
+}
+
+.chessboard {
+  display:grid;
+  grid-template-columns:repeat(8,50px);
+  grid-template-rows:repeat(8,50px);
+  width:400px;
+  height:400px;
+  box-shadow:0 0 20px #333;
+  border-radius:6px;
+  transition:transform .4s;
+}
+
+.square {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative; /* required for dots/circles */
+}
+
+.light { background:#f0d9b5; }
+.dark { background:#b58863; }
+
+.piece-img {
+  width:45px;
+  height:45px;
+  user-select:none;
+  pointer-events:none;
+}
+
+.flipped { transform:rotate(180deg); }
+.flipped .square { transform:rotate(180deg); }
+
+.timer-box {
+  font-size:22px;
+  font-weight:bold;
+  background:#111;
+  padding:6px 18px;
+  border-radius:10px;
+  box-shadow:0 0 10px #00ffff70;
+}
+
+/* ------------------ POPUP ------------------ */
+#popup {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.8);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:10;
+}
+#popup.show { display:flex; }
+
+#popup-content {
+  background:#222;
+  padding:30px 50px;
+  border-radius:15px;
+  text-align:center;
+}
+
+/* ------------------ MOVE HIGHLIGHT STYLES ------------------ */
+
+/* Selected piece outline */
+.piece.selected {
+  outline: 3px solid rgba(0,200,255,0.9);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+/* Legal move dot */
+.square.dot::after {
+  content:"";
+  width:18px;
+  height:18px;
+  background:rgba(0,0,0,0.3);
+  border-radius:50%;
+  position:absolute;
+  pointer-events:none;
+}
+
+/* Capture ring */
+.square.capture::after {
+  content:"";
+  width:36px;
+  height:36px;
+  border:4px solid rgba(255,0,0,0.65);
+  border-radius:50%;
+  position:absolute;
+  pointer-events:none;
+}
 </style>
 </head>
+
 <body>
+
   <div id="top-timer" class="timer-box">05:00</div>
   <div class="chessboard"></div>
   <div id="bottom-timer" class="timer-box">05:00</div>
@@ -38,3 +127,4 @@ display:none;align-items:center;justify-content:center;z-index:10}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <script src="/js/chessgame.js"></script>
 </body>
+</html>

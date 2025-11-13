@@ -10,6 +10,7 @@ const bottomTimer = document.getElementById("bottom-timer");
 const moveSound = new Audio("/sounds/move.mp3");
 const captureSound = new Audio("/sounds/capture.mp3");
 const endSound = new Audio("/sounds/gameover.mp3");
+const checkSound = new Audio("/sounds/check.mp3");
 
 let role = null;
 
@@ -332,7 +333,19 @@ socket.on("move", (mv) => {
   const res = chess.move(mv);
   renderBoard();
   clearSelectionUI();
-  (res && res.captured ? captureSound : moveSound).play();
+
+  // 🔥 CHECK FIRST
+  if (chess.in_check()) {
+    checkSound.play();
+    return; // do not play move/capture sound
+  }
+
+  // Capture > Move
+  if (res && res.captured) {
+    captureSound.play();
+  } else {
+    moveSound.play();
+  }
 });
 
 socket.on("timers", (t) => updateTimers(t));

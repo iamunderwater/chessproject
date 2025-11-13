@@ -35,47 +35,55 @@ function renderBoard() {
       if (sq) {
         const div = document.createElement("div");
         div.classList.add("piece", sq.color === "w" ? "white" : "black");
+
         const img = document.createElement("img");
         img.src = pieceImage(sq);
         img.classList.add("piece-img");
         div.appendChild(img);
+
         div.draggable = role === sq.color;
 
+        // --- Desktop Drag Start ---
         div.addEventListener("dragstart", (e) => {
-  if (!div.draggable) return;
+          if (!div.draggable) return;
 
-  dragged = div;
-  source = { row: r, col: c };
-  e.dataTransfer.setData("text/plain", "");
+          dragged = div;
+          source = { row: r, col: c };
+          e.dataTransfer.setData("text/plain", "");
 
-  // --- Create a transparent clone for drag preview ---
-  const img = div.querySelector("img");
-  const dragImg = img.cloneNode(true);
-  dragImg.style.position = "absolute";
-  dragImg.style.top = "-9999px";       // hide it offscreen
-  dragImg.style.background = "transparent";
-  dragImg.style.boxShadow = "none";
-  document.body.appendChild(dragImg);
+          // hidden drag image
+          const dragImg = img.cloneNode(true);
+          dragImg.style.position = "absolute";
+          dragImg.style.top = "-9999px";
+          dragImg.style.background = "transparent";
+          document.body.appendChild(dragImg);
+          e.dataTransfer.setDragImage(dragImg, dragImg.width / 2, dragImg.height / 2);
 
-  e.dataTransfer.setDragImage(dragImg, dragImg.width / 2, dragImg.height / 2);
+          div.classList.add("dragging");
+        });
 
-  // small lift animation
-  div.classList.add("dragging");
-});
-
+        // --- Desktop Drag End ---
         div.addEventListener("dragend", () => {
-  dragged = null;
-  source = null;
-  div.classList.remove("dragging");
+          dragged = null;
+          source = null;
+          div.classList.remove("dragging");
+          const clone = document.querySelector("body > img[style*='-9999px']");
+          if (clone) clone.remove();
+        });
 
-  // clean up hidden clone
-  const clone = document.querySelector("body > img[style*='-9999px']");
-  if (clone) clone.remove();
-});
+        // --- MOBILE TOUCH START ---
+        div.addEventListener("touchstart", (e) => {
+          if (!div.draggable) return;
+          e.preventDefault();
+
+          dragged = div;
+          source = { row: r, col: c };
+        });
 
         cell.appendChild(div);
       }
 
+      // Desktop dropping
       cell.addEventListener("dragover", (e) => e.preventDefault());
       cell.addEventListener("drop", (e) => {
         e.preventDefault();
@@ -84,11 +92,27 @@ function renderBoard() {
         handleMove(source, target);
       });
 
+      // --- MOBILE TOUCH END (tap → tap move) ---
+      cell.addEventListener("touchend", (e) => {
+        if (!dragged) return;
+        e.preventDefault();
+
+        const target = {
+          row: +cell.dataset.row,
+          col: +cell.dataset.col,
+        };
+
+        handleMove(source, target);
+
+        dragged = null;
+        source = null;
+      });
+
       boardEl.appendChild(cell);
     });
   });
 
-  // Only flip the board grid — not the pieces
+  // flip board for black
   if (role === "b") boardEl.classList.add("flipped");
   else boardEl.classList.remove("flipped");
 }
@@ -126,21 +150,20 @@ socket.on("timers", (t) => updateTimers(t));
 socket.on("gameover", (winner) => {
   let message = "";
 
-  // Decide funny message based on who won & who you are
   if (winner.includes("(timeout)")) {
     if (winner.startsWith("White") && role === "w") message = "EZ Timeout Win 😎";
     else if (winner.startsWith("Black") && role === "b") message = "Time’s up, victory is mine 🕒🔥";
-    else message = "Skill issue?🫵😂";
+    else message = "Skill issue? 🫵😂";
   } else if (winner === "Draw") {
     message = "Both are noobs";
   } else if (winner === "White") {
     if (role === "w") message = "you win 😎";
     else if (role === "b") message = "You lost, noob 💀";
-    else message = "Sorry White has won bro";
+    else message = "Sorry, White won";
   } else if (winner === "Black") {
     if (role === "b") message = "you win 😎";
-    else if (role === "w") message = "You got outplayed bro💀";
-    else message = "Black outplayed the board 💀";
+    else if (role === "w") message = "You got outplayed bro 💀";
+    else message = "Black wins 💀";
   }
 
   popupText.innerText = message;

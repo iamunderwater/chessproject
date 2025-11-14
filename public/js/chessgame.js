@@ -1,45 +1,47 @@
 const socket = io();
 const chess = new Chess();
-const boardEl = document.querySelector(".chessboard");
-const popup = document.getElementById("popup");
-const popupText = document.getElementById("popup-text");
-const playAgain = document.getElementById("play-again");
-const topTimer = document.getElementById("top-timer");
-const bottomTimer = document.getElementById("bottom-timer");
 
+// DOM references
+let boardEl, popup, popupText, playAgain, topTimer, bottomTimer;
+
+// Will be filled only on room.ejs
+let ROOM_ID = typeof ROOM_ID !== "undefined" ? ROOM_ID : null;
+
+let role = null;
+
+// Desktop drag
+let dragged = null;
+let source = null;
+
+// Tap-to-tap
+let selectedSource = null;
+let selectedElement = null;
+
+// Mobile drag
+let touchDrag = {
+  active: false,
+  startSquare: null,
+  floating: null,
+  lastTargetSquare: null
+};
+
+// Sounds
 const moveSound = new Audio("/sounds/move.mp3");
 const captureSound = new Audio("/sounds/capture.mp3");
 const endSound = new Audio("/sounds/gameover.mp3");
 const checkSound = new Audio("/sounds/check.mp3");
 
-let role = null;
-
-// Desktop variables
-let dragged = null;
-let source = null;
-
-// Tap-to-tap selection
-let selectedSource = null;
-let selectedElement = null;
-
-// Mobile drag variables
-let touchDrag = {
-  active: false,           // are we mobile-dragging right now
-  startSquare: null,       // {row,col}
-  floating: null,          // DOM element for floating piece
-  lastTargetSquare: null   // last square under finger
-};
-
-// helpers
+// Format timer
 const fmt = s =>
   `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
+// Piece images
 const pieceImage = p => {
   const t = { k: "K", q: "Q", r: "R", b: "B", n: "N", p: "P" };
   return `/pieces/${p.color}${t[p.type]}.svg`;
 };
 
-/* ---------------- HIGHLIGHT HELPERS ---------------- */
+// ---------------- HIGHLIGHT HELPERS ----------------
 function clearHighlights() {
   document.querySelectorAll(".square.dot, .square.capture").forEach(sq => {
     sq.classList.remove("dot");
@@ -69,7 +71,7 @@ function clearSelectionUI() {
   clearHighlights();
 }
 
-/* ---------------- BOARD RENDER ---------------- */
+// ---------------- BOARD RENDER ----------------
 function renderBoard() {
   const board = chess.board();
   boardEl.innerHTML = "";
@@ -81,7 +83,7 @@ function renderBoard() {
       cell.dataset.row = r;
       cell.dataset.col = c;
 
-      // click on square => if tap-selected piece exists, move there
+      // Tap-to-tap move
       cell.addEventListener("click", () => {
         if (selectedSource) {
           handleMove(selectedSource, { row: r, col: c });
@@ -89,14 +91,17 @@ function renderBoard() {
         }
       });
 
-      // touchend for tap-to-tap mobile
-      cell.addEventListener("touchend", (e) => {
-        if (selectedSource) {
-          e.preventDefault();
-          handleMove(selectedSource, { row: r, col: c });
-          clearSelectionUI();
-        }
-      }, { passive: false });
+      cell.addEventListener(
+        "touchend",
+        e => {
+          if (selectedSource) {
+            e.preventDefault();
+            handleMove(selectedSource, { row: r, col: c });
+            clearSelectionUI();
+          }
+        },
+        { passive: false }
+      );
 
       if (sq) {
         const piece = document.createElement("div");
@@ -107,53 +112,53 @@ function renderBoard() {
         img.classList.add("piece-img");
         piece.appendChild(img);
 
-        // draggable only if the client controls this color
         piece.draggable = role === sq.color;
 
-        /* ---------- Desktop dragstart ---------- */
-        piece.addEventListener("dragstart", (e) => {
+        // -------- Desktop dragstart --------
+        piece.addEventListener("dragstart", e => {
           if (!piece.draggable) return;
-          // standard desktop behavior
           dragged = piece;
           source = { row: r, col: c };
           e.dataTransfer.setData("text/plain", "");
 
-          // create hidden drag image (piece only)
+          // custom drag image
           const dragImg = img.cloneNode(true);
           dragImg.style.position = "absolute";
           dragImg.style.top = "-9999px";
-          dragImg.style.background = "transparent";
           document.body.appendChild(dragImg);
-          // center the image under cursor
           e.dataTransfer.setDragImage(dragImg, dragImg.width / 2, dragImg.height / 2);
 
           highlightMoves(r, c);
           piece.classList.add("dragging");
         });
 
-        /* ---------- Desktop dragend ---------- */
+        // -------- Desktop dragend --------
         piece.addEventListener("dragend", () => {
           dragged = null;
           source = null;
           piece.classList.remove("dragging");
+
           const clone = document.querySelector("body > img[style*='-9999px']");
           if (clone) clone.remove();
+
           clearHighlights();
         });
 
-        /* ---------- Mobile touchstart (start drag or select) ---------- */
-        piece.addEventListener("touchstart", (e) => {
-          // allow spectator to tap but not start a drag
-          e.preventDefault();
+        // -------- Mobile touchstart --------
+        piece.addEventListener(
+          "touchstart",
+          e => {
+            e.preventDefault();
+            if (role !== sq.color) {
+              clearSelectionUI();
+              return;
+            }
 
-          // if user controls piece color -> begin mobile drag mode
-          if (role === sq.color) {
-            // initialize touch drag state
+            // start mobile drag
             touchDrag.active = true;
             touchDrag.startSquare = { row: r, col: c };
             touchDrag.lastTargetSquare = null;
 
-            // create floating piece image (same size)
             const floating = img.cloneNode(true);
             floating.style.position = "fixed";
             floating.style.left = `${e.touches[0].clientX}px`;
@@ -161,107 +166,87 @@ function renderBoard() {
             floating.style.transform = "translate(-50%, -50%)";
             floating.style.zIndex = 9999;
             floating.style.pointerEvents = "none";
-            floating.classList.add("floating-piece");
             document.body.appendChild(floating);
             touchDrag.floating = floating;
 
-            // show legal moves
             highlightMoves(r, c);
 
-            // also set tap-select state so quick taps still work
             clearSelectionUI();
             selectedSource = { row: r, col: c };
             selectedElement = piece;
             selectedElement.classList.add("selected");
-          } else {
-            // if not player's piece but they tap, just select nothing
-            clearSelectionUI();
-          }
-        }, { passive: false });
+          },
+          { passive: false }
+        );
 
-        /* ---------- Mobile touchmove (floating follows finger) ---------- */
-        piece.addEventListener("touchmove", (e) => {
-          if (!touchDrag.active || !touchDrag.floating) return;
-          e.preventDefault();
-          const t = e.touches[0];
-          touchDrag.floating.style.left = `${t.clientX}px`;
-          touchDrag.floating.style.top = `${t.clientY}px`;
+        // -------- Mobile touchmove --------
+        piece.addEventListener(
+          "touchmove",
+          e => {
+            if (!touchDrag.active || !touchDrag.floating) return;
+            e.preventDefault();
+            const t = e.touches[0];
+            touchDrag.floating.style.left = `${t.clientX}px`;
+            touchDrag.floating.style.top = `${t.clientY}px`;
 
-          // find square under finger
-          const el = document.elementFromPoint(t.clientX, t.clientY);
-          if (!el) return;
-          const sqEl = el.closest(".square");
-          if (!sqEl) {
-            // if moved off-board, clear last target
-            if (touchDrag.lastTargetSquare) {
+            const el = document.elementFromPoint(t.clientX, t.clientY);
+            if (!el) return;
+            const sqEl = el.closest(".square");
+            if (!sqEl) {
               touchDrag.lastTargetSquare = null;
-              clearHighlights();
-              highlightMoves(touchDrag.startSquare.row, touchDrag.startSquare.col);
+              return;
             }
-            return;
-          }
-          const tr = parseInt(sqEl.dataset.row);
-          const tc = parseInt(sqEl.dataset.col);
 
-          // only update if changed
-          if (!touchDrag.lastTargetSquare || touchDrag.lastTargetSquare.row !== tr || touchDrag.lastTargetSquare.col !== tc) {
-            touchDrag.lastTargetSquare = { row: tr, col: tc };
-            // show highlight for that square: keep dots but optionally emphasize destination
-            // we keep dot/capture as before; no extra change required here
-          }
-        }, { passive: false });
+            touchDrag.lastTargetSquare = {
+              row: parseInt(sqEl.dataset.row),
+              col: parseInt(sqEl.dataset.col)
+            };
+          },
+          { passive: false }
+        );
 
-        /* ---------- Mobile touchend (drop) ---------- */
-        piece.addEventListener("touchend", (e) => {
-          if (!touchDrag.active) {
-            // might be a quick tap - handled by click/touch handlers on piece below
-            return;
-          }
-          e.preventDefault();
+        // -------- Mobile touchend --------
+        piece.addEventListener(
+          "touchend",
+          e => {
+            if (!touchDrag.active) return;
 
-          let targetSquare = null;
-          if (touchDrag.lastTargetSquare) {
-            targetSquare = touchDrag.lastTargetSquare;
-          } else {
-            // if finger lifted without moving, attempt to derive from last touch coords
-            const touch = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
-            if (touch) {
-              const el = document.elementFromPoint(touch.clientX, touch.clientY);
-              if (el) {
-                const sqEl = el.closest(".square");
-                if (sqEl) {
-                  targetSquare = { row: parseInt(sqEl.dataset.row), col: parseInt(sqEl.dataset.col) };
-                }
+            e.preventDefault();
+
+            let target = touchDrag.lastTargetSquare;
+
+            if (!target) {
+              const t = e.changedTouches[0];
+              const el = document.elementFromPoint(t.clientX, t.clientY);
+              const sqEl = el && el.closest(".square");
+              if (sqEl) {
+                target = {
+                  row: parseInt(sqEl.dataset.row),
+                  col: parseInt(sqEl.dataset.col)
+                };
               }
             }
-          }
 
-          // Clean up floating element
-          if (touchDrag.floating) {
-            touchDrag.floating.remove();
-            touchDrag.floating = null;
-          }
+            if (touchDrag.floating) touchDrag.floating.remove();
 
-          // perform move if we have a target
-          if (targetSquare) {
-            handleMove(touchDrag.startSquare, targetSquare);
-          } else {
-            // if no target, treat it as a tap (toggle selection)
-            // selection already set in touchstart
-          }
+            if (target) {
+              handleMove(touchDrag.startSquare, target);
+            }
 
-          // reset mobile drag state
-          touchDrag.active = false;
-          touchDrag.startSquare = null;
-          touchDrag.lastTargetSquare = null;
+            touchDrag = {
+              active: false,
+              startSquare: null,
+              floating: null,
+              lastTargetSquare: null
+            };
 
-          clearHighlights();
-          // keep selection highlight for tap-to-tap; if move happened we will clear on boardstate event
-        }, { passive: false });
+            clearHighlights();
+          },
+          { passive: false }
+        );
 
-        /* ---------- Click for desktop / tap for tap->tap ---------- */
-        piece.addEventListener("click", (e) => {
-          // clicking only selects (or deselects) your own piece
+        // -------- Click selection --------
+        piece.addEventListener("click", () => {
           if (role !== sq.color) return;
 
           if (selectedSource && selectedSource.row === r && selectedSource.col === c) {
@@ -275,13 +260,12 @@ function renderBoard() {
           }
         });
 
-        // append piece to cell
         cell.appendChild(piece);
       }
 
-      // Desktop drop handling
-      cell.addEventListener("dragover", (e) => e.preventDefault());
-      cell.addEventListener("drop", (e) => {
+      // Desktop drop
+      cell.addEventListener("dragover", e => e.preventDefault());
+      cell.addEventListener("drop", e => {
         e.preventDefault();
         if (dragged && source) {
           handleMove(source, { row: r, col: c });
@@ -293,18 +277,15 @@ function renderBoard() {
     });
   });
 
-  // flip board for black (only grid rotates; pieces stay upright)
   if (role === "b") boardEl.classList.add("flipped");
   else boardEl.classList.remove("flipped");
 
-  // ensure highlights cleared if necessary
   clearHighlights();
 }
 
-/* ---------------- HANDLE MOVES ---------------- */
+// ---------------- HANDLE MOVES ----------------
 function handleMove(s, t) {
   if (!s) return;
-  // ignore if same square
   if (s.row === t.row && s.col === t.col) return;
 
   const mv = {
@@ -312,72 +293,11 @@ function handleMove(s, t) {
     to: `${String.fromCharCode(97 + t.col)}${8 - t.row}`,
     promotion: "q"
   };
-  socket.emit("move", mv);
+
+  socket.emit("move", { roomId: ROOM_ID, move: mv });
 }
 
-/* ---------------- SOCKET EVENTS ---------------- */
-socket.on("init", (data) => {
-  role = data.role;
-  chess.load(data.fen);
-  renderBoard();
-  updateTimers(data.timers || { w: 300, b: 300 });
-});
-
-socket.on("boardstate", (fen) => {
-  chess.load(fen);
-  renderBoard();
-  clearSelectionUI();
-});
-
-socket.on("move", (mv) => {
-  const res = chess.move(mv);
-  renderBoard();
-  clearSelectionUI();
-
-  // 🔥 CHECK FIRST
-  if (chess.in_check()) {
-    checkSound.play();
-    return; // do not play move/capture sound
-  }
-
-  // Capture > Move
-  if (res && res.captured) {
-    captureSound.play();
-  } else {
-    moveSound.play();
-  }
-});
-
-socket.on("timers", (t) => updateTimers(t));
-
-socket.on("gameover", (winner) => {
-  let msg = "";
-
-  if (winner.includes("(timeout)")) {
-    if (role === "w" && winner.startsWith("White")) msg = "EZ Timeout Win 😎";
-    else if (role === "b" && winner.startsWith("Black")) msg = "Time’s up, victory is mine 🕒🔥";
-    else msg = "Skill issue? 🫵😂";
-  } else if (winner === "Draw") msg = "Both are noobs";
-  else if (winner === "White") {
-    if (role === "w") msg = "You win 😎";
-    else msg = "You lost, noob 💀";
-  } else if (winner === "Black") {
-    if (role === "b") msg = "You win 😎";
-    else msg = "You got outplayed bro 💀";
-  }
-
-  popupText.innerText = msg;
-  popup.classList.add("show");
-  endSound.play();
-});
-
-/* ---------------- Play again ---------------- */
-playAgain.onclick = () => {
-  socket.emit("resetgame");
-  popup.classList.remove("show");
-};
-
-/* ---------------- TIMERS ---------------- */
+// ---------------- TIMERS ----------------
 function updateTimers(t) {
   if (!t) return;
   if (role === "b") {
@@ -387,4 +307,103 @@ function updateTimers(t) {
     bottomTimer.innerText = fmt(t.w);
     topTimer.innerText = fmt(t.b);
   }
+}
+
+// ======================================================
+// SOCKET EVENTS
+// ======================================================
+
+// -------- QUICK PLAY MATCHED --------
+socket.on("matched", d => {
+  if (d && d.roomId) {
+    window.location = `/room/${d.roomId}`;
+  }
+});
+
+// -------- WAITING SCREEN (Friend Mode or Quickplay) --------
+socket.on("waiting", d => {
+  document.getElementById("game").classList.add("hidden");
+  document.getElementById("waiting").classList.remove("hidden");
+
+  document.getElementById("wait-text").innerText = d.text;
+
+  if (d.link) {
+    document.getElementById("room-link").innerText = d.link;
+  }
+});
+
+// -------- INITIAL SETUP --------
+socket.on("init", data => {
+  role = data.role;
+
+  document.getElementById("waiting").classList.add("hidden");
+  document.getElementById("game").classList.remove("hidden");
+
+  boardEl = document.querySelector(".chessboard");
+  popup = document.getElementById("popup");
+  popupText = document.getElementById("popup-text");
+  playAgain = document.getElementById("play-again");
+  topTimer = document.getElementById("top-timer");
+  bottomTimer = document.getElementById("bottom-timer");
+
+  chess.load(data.fen);
+  renderBoard();
+  updateTimers(data.timers);
+});
+
+// -------- BOARD UPDATE --------
+socket.on("boardstate", fen => {
+  chess.load(fen);
+  renderBoard();
+  clearSelectionUI();
+});
+
+// -------- MOVE EVENT --------
+socket.on("move", mv => {
+  const res = chess.move(mv);
+  renderBoard();
+  clearSelectionUI();
+
+  if (chess.in_check()) {
+    checkSound.play();
+    return;
+  }
+
+  if (res && res.captured) captureSound.play();
+  else moveSound.play();
+});
+
+// -------- TIMERS --------
+socket.on("timers", t => updateTimers(t));
+
+// -------- GAME OVER --------
+socket.on("gameover", winner => {
+  let txt = "";
+
+  if (winner.includes("timeout")) {
+    if (role === "w" && winner.startsWith("White")) txt = "EZ Timeout Win 😎";
+    else if (role === "b" && winner.startsWith("Black"))
+      txt = "Time’s up, victory is mine 🕒🔥";
+    else txt = "Skill issue? 🫵😂";
+  } else if (winner === "Draw") txt = "Both are noobs";
+  else if (winner === "White") {
+    txt = role === "w" ? "You win 😎" : "You lost, noob 💀";
+  } else if (winner === "Black") {
+    txt = role === "b" ? "You win 😎" : "You got outplayed bro 💀";
+  }
+
+  popupText.innerText = txt;
+  popup.classList.add("show");
+  endSound.play();
+});
+
+// -------- RESET BUTTON --------
+document.getElementById("play-again").onclick = () => {
+  socket.emit("resetgame", ROOM_ID);
+  popup.classList.remove("show");
+};
+
+// -------- JOIN ROOM ON PAGE LOAD --------
+if (ROOM_ID) {
+  socket.emit("joinRoom", ROOM_ID);
 }

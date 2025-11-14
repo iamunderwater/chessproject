@@ -357,6 +357,10 @@ socket.on("boardstate", fen => {
   clearSelectionUI();
 });
 
+socket.on("forceJoin", (roomId) => {
+  socket.emit("joinRoom", roomId);
+});
+
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
   const res = chess.move(mv);

@@ -36,18 +36,11 @@ body {
     document.querySelector("h2").innerText = d.text || "Looking for players...";
   });
 
-  // ⭐ REDIRECT WITH ROLE QUERY PARAM
   socket.on("matched", d => {
     if (d.roomId) {
-      window.location = `/room/${d.roomId}?role=${d.role}`;
+      window.location = "/room/" + d.roomId;
     }
   });
-
-  // ⭐ Render fix: forceJoin also must include role
-  socket.on("forceJoin", d => {
-    window.location = `/room/${d.roomId}?role=${d.role}`;
-  });
 </script>
-
 </body>
 </html>

@@ -12,250 +12,379 @@ const io = socketio(server);
 app.set("view engine", "ejs");
 app.use(express.static(path.join(__dirname, "public")));
 
+// -------------------- In-memory data --------------------
+/**
+ rooms structure:
+ rooms[roomId] = {
+   chess: Chess instance,
+   white: socketId | null,
+   black: socketId | null,
+   watchers: Set(socketId),
+   timers: { w: seconds, b: seconds },
+   timerInterval: IntervalId | null,
+   isTimerRunning: boolean
+ }
+*/
 const rooms = Object.create(null);
-let quickWaiting = null;
 
-const makeRoomId = () =>
-  crypto.randomBytes(4).toString("hex").slice(0, 6).toUpperCase();
+// Quickplay queue (single waiting socket)
+let quickWaiting = null; // { socketId, createdAt } or null
 
-function createRoom(id) {
-  rooms[id] = {
+// -------------------- Helpers --------------------
+const makeRoomId = () => {
+  // 6-char alphanumeric
+  return crypto.randomBytes(4).toString("hex").slice(0, 6).toUpperCase();
+};
+
+function createRoom(roomId) {
+  const room = {
     chess: new Chess(),
     white: null,
     black: null,
     watchers: new Set(),
-    timers: { w: 300, b: 300 },
-    isTimerRunning: false,
-    timerInterval: null
+    timers: { w: 300, b: 300 }, // 5 minutes default
+    timerInterval: null,
+    isTimerRunning: false
   };
-  return rooms[id];
+  rooms[roomId] = room;
+  return room;
 }
 
-function startTimer(id) {
-  const room = rooms[id];
+function startRoomTimer(roomId) {
+  const room = rooms[roomId];
   if (!room || room.isTimerRunning) return;
   room.isTimerRunning = true;
 
+  if (room.timerInterval) {
+    clearInterval(room.timerInterval);
+  }
+
   room.timerInterval = setInterval(() => {
-    const turn = room.chess.turn();
+    const turn = room.chess.turn(); // 'w' or 'b'
     if (!turn) return;
 
-    room.timers[turn]--;
-    io.to(id).emit("timers", room.timers);
+    if (room.timers[turn] > 0) room.timers[turn]--;
+
+    // broadcast timers to room
+    io.to(roomId).emit("timers", room.timers);
 
     if (room.timers[turn] <= 0) {
       clearInterval(room.timerInterval);
       room.timerInterval = null;
       room.isTimerRunning = false;
-
+      // opponent wins on timeout
       const winner = turn === "w" ? "Black" : "White";
-      io.to(id).emit("gameover", `${winner} (timeout)`);
+      io.to(roomId).emit("gameover", `${winner} (timeout)`);
     }
   }, 1000);
 }
 
-function stopTimer(id) {
-  const room = rooms[id];
+function stopRoomTimer(roomId) {
+  const room = rooms[roomId];
   if (!room) return;
-  if (room.timerInterval) clearInterval(room.timerInterval);
+  if (room.timerInterval) {
+    clearInterval(room.timerInterval);
+    room.timerInterval = null;
+  }
   room.isTimerRunning = false;
-  room.timerInterval = null;
 }
 
+function cleanRoomIfEmpty(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  if (!room.white && !room.black && room.watchers.size === 0) {
+    stopRoomTimer(roomId);
+    delete rooms[roomId];
+    console.log(`Deleted empty room ${roomId}`);
+  }
+}
+
+// -------------------- Routes --------------------
 app.get("/", (req, res) => {
   res.render("index");
 });
 
+// Quickplay page - minimal page that auto-joins queue on client connect
 app.get("/quickplay", (req, res) => {
-  res.render("quickplay");
+  res.render("quickplay"); // we'll send a small quickplay view (see note)
 });
 
+// Create a friend room and redirect to it
 app.get("/create-room", (req, res) => {
   const id = makeRoomId();
   createRoom(id);
   res.redirect(`/room/${id}`);
 });
 
+// Room page (game UI)
 app.get("/room/:id", (req, res) => {
-  const id = req.params.id.toUpperCase();
-  if (!rooms[id]) createRoom(id);
-  res.render("room", { roomId: id });
+  const roomId = req.params.id.toUpperCase();
+  // create if not exists
+  if (!rooms[roomId]) createRoom(roomId);
+  res.render("room", { roomId });
 });
 
-// ==================================================================
-// SOCKET.IO
-// ==================================================================
+// -------------------- Socket.IO --------------------
 io.on("connection", (socket) => {
-  console.log("Connected:", socket.id);
+  console.log("Socket connected:", socket.id);
 
-  // =================== JOIN ROOM ======================
-  socket.on("joinRoom", (payload) => {
-    let roomId = null;
-    let requestedRole = null;
+  // Helper: join socket.io room for broadcasts
+  function joinSocketRoom(roomId) {
+    try {
+      socket.join(roomId);
+    } catch (e) {}
+  }
 
-    if (typeof payload === "string") {
-      roomId = payload.toUpperCase();
-    } else {
-      roomId = String(payload.roomId).toUpperCase();
-      requestedRole = payload.role; // 'w' | 'b' | null
-    }
+  function leaveSocketRoom(roomId) {
+    try {
+      socket.leave(roomId);
+    } catch (e) {}
+  }
 
-    if (!rooms[roomId]) createRoom(roomId);
-    const room = rooms[roomId];
-    socket.join(roomId);
-    socket.data.roomId = roomId;
+  // ---------------- Join an existing room (from room page)
+  // client emits: socket.emit('joinRoom', roomId)
+  socket.on("joinRoom", roomId => {
+  roomId = String(roomId).toUpperCase();
+  if (!rooms[roomId]) createRoom(roomId);
+  const room = rooms[roomId];
 
-    // If Quickplay gave us a role → honor it
-    if (requestedRole === "w") {
-      room.white = socket.id;
-      socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+  joinSocketRoom(roomId);
 
-      if (room.black) {
-        startTimer(roomId);
-        io.to(roomId).emit("boardstate", room.chess.fen());
-        io.to(roomId).emit("timers", room.timers);
-      }
-      return;
-    }
+  // If player is already assigned white/black (from quickplay), use that
+  if (room.white === socket.id) {
+    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+  }
+  else if (room.black === socket.id) {
+    socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+  }
+  else if (!room.white) {
+    // First player (friend-play)
+    room.white = socket.id;
+    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
 
-    if (requestedRole === "b") {
-      room.black = socket.id;
-      socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-
-      if (room.white) {
-        startTimer(roomId);
-        io.to(roomId).emit("boardstate", room.chess.fen());
-        io.to(roomId).emit("timers", room.timers);
-      }
-      return;
-    }
-
-    // ========== FRIEND MODE ==========
-    if (!room.white) {
-      room.white = socket.id;
-      socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-
+    if (!room.black) {
       socket.emit("waiting", {
         text: "Waiting for your friend to join...",
-        link: `${getUrl(socket)}/room/${roomId}`
+        link: `${getBaseUrl(socket.request)}/room/${roomId}`
       });
-
-      return;
-    } else if (!room.black) {
-      room.black = socket.id;
-
-      io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-      io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-
-      startTimer(roomId);
-      io.to(roomId).emit("boardstate", room.chess.fen());
-      io.to(roomId).emit("timers", room.timers);
-
-      return;
     }
+  }
+  else if (!room.black) {
+    // Second player (friend-play)
+    room.black = socket.id;
 
-    // WATCHER MODE
+    io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+    io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+
+    startRoomTimer(roomId);
+    io.to(roomId).emit("boardstate", room.chess.fen());
+    io.to(roomId).emit("timers", room.timers);
+  }
+  else {
+    // Watcher
     room.watchers.add(socket.id);
     socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
     socket.emit("boardstate", room.chess.fen());
     socket.emit("timers", room.timers);
-  });
+  }
 
-  // =================== QUICKPLAY ======================
+  socket.data.currentRoom = roomId;
+});
+  // ---------------- Quick Play (enter queue)
+  // client emits: socket.emit('enterQuickplay')
   socket.on("enterQuickplay", () => {
+    // if already in queue, ignore
+    if (quickWaiting && quickWaiting.socketId === socket.id) {
+      socket.emit("info", { text: "Already searching..." });
+      return;
+    }
+
+    // If no one waiting -> become the waiting player
     if (!quickWaiting) {
-      quickWaiting = socket.id;
+      quickWaiting = { socketId: socket.id, createdAt: Date.now() };
+      socket.emit("looking", { text: "Looking for available players..." });
+      console.log("Quickplay: waiting:", socket.id);
+
+      // cleanup on disconnect will handle clearing quickWaiting
+      socket.data.isInQuickplay = true;
+      return;
+    }
+
+    // If we reach here, there's someone waiting -> create room and match
+    // Validate waiting is still connected
+    const waitingSocketId = quickWaiting.socketId;
+    const waitingSocket = io.sockets.sockets.get(waitingSocketId);
+
+    if (!waitingSocket) {
+      // waiting disconnected, replace with current
+      quickWaiting = { socketId: socket.id, createdAt: Date.now() };
+      socket.data.isInQuickplay = true;
       socket.emit("looking", { text: "Looking for available players..." });
       return;
     }
 
-    const p1 = quickWaiting;
-    const p2 = socket.id;
-    quickWaiting = null;
-
+    // Create new room and assign first waiting user as white, current as black
     const roomId = makeRoomId();
-    createRoom(roomId);
+    const room = createRoom(roomId);
 
-    io.to(p1).emit("matched", { roomId, role: "w" });
-    io.to(p2).emit("matched", { roomId, role: "b" });
+    // assign
+    room.white = waitingSocketId;
+    room.black = socket.id;
 
-    // VERY IMPORTANT: forceJoin also includes the role via URL
-    io.to(p1).emit("forceJoin", { roomId, role: "w" });
-    io.to(p2).emit("forceJoin", { roomId, role: "b" });
+    // both sockets should join socket.io room
+    waitingSocket.join(roomId);
+    socket.join(roomId);
+
+    // clear quickWaiting
+    quickWaiting = null;
+    waitingSocket.data.isInQuickplay = false;
+    socket.data.isInQuickplay = false;
+
+    // Inform both clients to navigate to room URL (client will handle redirect)
+    io.to(waitingSocketId).emit("matched", { roomId, role: "w" });
+    io.to(socket.id).emit("matched", { roomId, role: "b" });
+
+    // send initial game state once they connect/join room page
+    // We'll still rely on 'joinRoom' from client once they load the /room/:id page to initialize fully.
+
+    console.log(`Quickplay matched ${waitingSocketId} <> ${socket.id} -> room ${roomId}`);
   });
 
-  // =================== MOVE ======================
+  // ---------------- Move handler per room
   socket.on("move", (data) => {
-    const roomId = socket.data.roomId;
-    if (!rooms[roomId]) return;
+    // data should include roomId and move object
+    // But older clients might send move without roomId. We handle both.
+    try {
+      const roomId = socket.data.currentRoom || data.roomId;
+      if (!roomId || !rooms[roomId]) return;
 
-    const room = rooms[roomId];
-    const mv = data.move;
+      const room = rooms[roomId];
+      const mv = data.move || data; // support both shapes
+      if (!mv || !mv.from || !mv.to) return;
 
-    const turn = room.chess.turn();
-    if (turn === "w" && socket.id !== room.white) return;
-    if (turn === "b" && socket.id !== room.black) return;
-
-    if (!room.chess.move(mv)) return;
-
-    io.to(roomId).emit("move", mv);
-    io.to(roomId).emit("boardstate", room.chess.fen());
-    io.to(roomId).emit("timers", room.timers);
-
-    stopTimer(roomId);
-    startTimer(roomId);
-
-    if (room.chess.isGameOver()) {
-      stopTimer(roomId);
-      let w = "Draw";
-      if (room.chess.isCheckmate()) {
-        w = room.chess.turn() === "w" ? "Black" : "White";
+      // Verify that the socket is allowed to move (owner of color)
+      const turn = room.chess.turn(); // 'w' or 'b'
+      if ((turn === "w" && socket.id !== room.white) || (turn === "b" && socket.id !== room.black)) {
+        // not this player's turn
+        return;
       }
-      io.to(roomId).emit("gameover", w);
+
+      // attempt move
+      const result = room.chess.move(mv, { sloppy: true });
+      if (!result) return;
+
+      // broadcast move and boardstate & timers
+      io.to(roomId).emit("move", mv);
+      io.to(roomId).emit("boardstate", room.chess.fen());
+      io.to(roomId).emit("timers", room.timers);
+
+      // restart timers safely
+      stopRoomTimer(roomId);
+      startRoomTimer(roomId);
+
+      // check game over
+      if (room.chess.isGameOver()) {
+        stopRoomTimer(roomId);
+        let winner = "Draw";
+        if (room.chess.isCheckmate()) {
+          winner = room.chess.turn() === "w" ? "Black" : "White";
+        }
+        io.to(roomId).emit("gameover", winner);
+      }
+    } catch (err) {
+      console.log("Move error:", err && err.message);
     }
   });
 
-  // =================== RESET ======================
-  socket.on("resetgame", () => {
-    const roomId = socket.data.roomId;
-    const room = rooms[roomId];
-    if (!room) return;
+  // client may emit move as { roomId, move: {from,to} } or simply move object
+  // To be safe, above we try both shapes.
 
+  // ---------------- Reset game in a room
+  socket.on("resetgame", (roomId) => {
+    roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
+    if (!rooms[roomId]) return;
+    const room = rooms[roomId];
     room.chess = new Chess();
     room.timers = { w: 300, b: 300 };
-    stopTimer(roomId);
-
+    stopRoomTimer(roomId);
     io.to(roomId).emit("boardstate", room.chess.fen());
     io.to(roomId).emit("timers", room.timers);
   });
 
-  // =================== DISCONNECT ======================
+  // ---------------- disconnect handling ----------------
   socket.on("disconnect", () => {
-    if (quickWaiting === socket.id) quickWaiting = null;
+    console.log("Socket disconnected:", socket.id);
 
-    const roomId = socket.data.roomId;
-    const room = rooms[roomId];
-    if (!room) return;
+    // If in quickplay queue, remove
+    if (quickWaiting && quickWaiting.socketId === socket.id) {
+      quickWaiting = null;
+    }
 
-    if (room.white === socket.id) room.white = null;
-    if (room.black === socket.id) room.black = null;
-    room.watchers.delete(socket.id);
+    // If the socket had a currentRoom, handle leaving
+    const roomId = socket.data.currentRoom;
+    if (roomId && rooms[roomId]) {
+      const room = rooms[roomId];
 
-    io.to(roomId).emit("info", { text: "A player left the game." });
+      // remove from white/black/watchers
+      if (room.white === socket.id) {
+        room.white = null;
+      }
+      if (room.black === socket.id) {
+        room.black = null;
+      }
+      if (room.watchers.has(socket.id)) room.watchers.delete(socket.id);
 
-    if (!room.white && !room.black) {
-      stopTimer(roomId);
-      delete rooms[roomId];
+      // notify remaining sockets in room
+      io.to(roomId).emit("info", { text: "A player left the game." });
+      // If both players left, clean up room
+      if (!room.white && !room.black) {
+        // close timers & delete room
+        stopRoomTimer(roomId);
+        delete rooms[roomId];
+        console.log(`Room ${roomId} deleted because both players left.`);
+      }
     }
   });
+
+  // ---------------- Utility to get base URL (for room link) -------------
+  function getBaseUrl(req) {
+    // req may be undefined when called from socket; try to derive from socket.request
+    const r = req || socket.request;
+    if (!r) return `${serverAddress()}`;
+    const protocol = r.headers && r.headers["x-forwarded-proto"] ? r.headers["x-forwarded-proto"] : "http";
+    const host = r.headers && r.headers.host ? r.headers.host : `localhost:${process.env.PORT || 3000}`;
+    return `${protocol}://${host}`;
+  }
+
+  function serverAddress() {
+    // fallback
+    return `http://localhost:${process.env.PORT || 3000}`;
+  }
 });
 
-function getUrl(socket) {
-  const h = socket.request.headers.host;
-  const proto = socket.request.headers["x-forwarded-proto"] || "http";
-  return `${proto}://${h}`;
-}
+// -------------------- Tiny view for quickplay (server must have view quickplay.ejs) --------------------
+// We'll render a tiny page that auto-joins quickplay via socket.
+app.get("/views/quickplay-raw", (req, res) => {
+  res.send(`<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Quickplay</title></head><body>
+  <p>Looking for available players...</p>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const s = io();
+    s.on('connect', ()=> {
+      s.emit('enterQuickplay');
+    });
+    s.on('matched', (d)=> {
+      if(d && d.roomId) {
+        window.location = '/room/' + d.roomId;
+      }
+    });
+    s.on('looking',(d)=> {
+      document.body.innerHTML = '<p>' + (d && d.text ? d.text : 'Looking...') + '</p>';
+    });
+  </script>
+  </body></html>`);
+});
 
-server.listen(process.env.PORT || 3000, () =>
-  console.log("Server started.")
-);
+// -------------------- Start server --------------------
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));

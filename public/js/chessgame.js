@@ -4,8 +4,7 @@ const chess = new Chess();
 // DOM references
 let boardEl, popup, popupText, playAgain, topTimer, bottomTimer;
 
-// Will be filled only on room.ejs
-let ROOM_ID = typeof ROOM_ID !== "undefined" ? ROOM_ID : null;
+
 
 let role = null;
 

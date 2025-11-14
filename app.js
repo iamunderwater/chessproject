@@ -233,8 +233,10 @@ io.on("connection", (socket) => {
 
     // both sockets should join socket.io room
     waitingSocket.join(roomId);
-    socket.join(roomId);
+socket.join(roomId);
 
+waitingSocket.data.currentRoom = roomId;
+socket.data.currentRoom = roomId;
     // clear quickWaiting
     quickWaiting = null;
     waitingSocket.data.isInQuickplay = false;

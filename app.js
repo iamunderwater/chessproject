@@ -170,16 +170,27 @@ io.on("connection", (socket) => {
     }
   }
   else if (!room.black) {
-    // Second player (friend-play)
-    room.black = socket.id;
+  // Second player joins
+  room.black = socket.id;
 
-    io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-    io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+  io.to(room.white).emit("init", {
+    role: "w",
+    fen: room.chess.fen(),
+    timers: room.timers
+  });
 
-    startRoomTimer(roomId);
-    io.to(roomId).emit("boardstate", room.chess.fen());
-    io.to(roomId).emit("timers", room.timers);
-  }
+  io.to(room.black).emit("init", {
+    role: "b",
+    fen: room.chess.fen(),
+    timers: room.timers
+  });
+
+  // DO NOT START TIMER HERE!
+  // Timer will start after first move only.
+
+  io.to(roomId).emit("boardstate", room.chess.fen());
+  io.to(roomId).emit("timers", room.timers);
+}
   else {
     // Watcher
     room.watchers.add(socket.id);

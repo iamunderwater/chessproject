@@ -170,19 +170,25 @@ io.on("connection", (socket) => {
       // First player is white (we promised that)
       console.log(`Assigned BLACK in ${roomId} -> ${socket.id}`);
 
-      // Send init to both players
-      io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-      io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+      // Send init to ONLY the new player (black)
+      socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
 
       // Start timer when second player joins
       startRoomTimer(roomId);
 
-      // Broadcast board state and timers to everyone in the room
-      // Send a single update event instead of separate boardstate
-      io.to(roomId).emit("boardupdate", {
-         fen: room.chess.fen() 
+      // *** FIXED: Emit 'startgame' to BOTH players ***
+      // This tells P1 to hide the waiting screen and P2 to show the board.
+      io.to(roomId).emit("startgame", {
+         fen: room.chess.fen(),
+         timers: room.timers
       });
-      io.to(roomId).emit("timers", room.timers);
+      
+      // We no longer need these individual emits, 'startgame' handles it.
+      // io.to(roomId).emit("boardupdate", {
+      //    fen: room.chess.fen() 
+      // });
+      // io.to(roomId).emit("timers", room.timers);
+
     } else {
       // both players exist -> treat as spectator/watcher
       room.watchers.add(socket.id);

@@ -37,11 +37,10 @@ body {
   });
 
   socket.on("matched", d => {
-  if (d.roomId && d.role) {
-    localStorage.setItem("role", d.role);
-    window.location = "/room/" + d.roomId;
-  }
-});
+    if (d.roomId) {
+      window.location = "/room/" + d.roomId;
+    }
+  });
 </script>
 </body>
 </html>

@@ -143,14 +143,53 @@ io.on("connection", (socket) => {
 
   // ---------------- Join an existing room (from room page)
   // client emits: socket.emit('joinRoom', roomId)
-  socket.on("joinRoom", roomId => {
-  roomId = String(roomId).toUpperCase();
+socket.on("joinRoom", data => {
+  let roomId, forcedRole;
+
+  // support both: joinRoom("ABCDE") and joinRoom({ roomId: "ABCDE", role: "w" })
+  if (typeof data === "string") {
+    roomId = data.toUpperCase();
+  } else {
+    roomId = data.roomId.toUpperCase();
+    forcedRole = data.role; // "w" or "b" or null
+  }
+
   if (!rooms[roomId]) createRoom(roomId);
   const room = rooms[roomId];
 
   joinSocketRoom(roomId);
+  socket.data.currentRoom = roomId;
 
-  // If player is already assigned white/black (from quickplay), use that
+  // =====================================
+  //  QUICKPLAY FIX: respect forced roles
+  // =====================================
+  if (forcedRole === "w") {
+    room.white = socket.id;
+    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+
+    if (room.black) {
+      startRoomTimer(roomId);
+      io.to(roomId).emit("boardstate", room.chess.fen());
+      io.to(roomId).emit("timers", room.timers);
+    }
+    return;
+  }
+
+  if (forcedRole === "b") {
+    room.black = socket.id;
+    socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+
+    if (room.white) {
+      startRoomTimer(roomId);
+      io.to(roomId).emit("boardstate", room.chess.fen());
+      io.to(roomId).emit("timers", room.timers);
+    }
+    return;
+  }
+
+  // =====================================
+  //  FRIEND ROOM LOGIC (normal join)
+  // =====================================
   if (room.white === socket.id) {
     socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
   }
@@ -158,7 +197,6 @@ io.on("connection", (socket) => {
     socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
   }
   else if (!room.white) {
-    // First player (friend-play)
     room.white = socket.id;
     socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
 
@@ -170,7 +208,6 @@ io.on("connection", (socket) => {
     }
   }
   else if (!room.black) {
-    // Second player (friend-play)
     room.black = socket.id;
 
     io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
@@ -181,14 +218,12 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("timers", room.timers);
   }
   else {
-    // Watcher
     room.watchers.add(socket.id);
     socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
     socket.emit("boardstate", room.chess.fen());
     socket.emit("timers", room.timers);
   }
 
-  socket.data.currentRoom = roomId;
 });
   // ---------------- Quick Play (enter queue)
   // client emits: socket.emit('enterQuickplay')

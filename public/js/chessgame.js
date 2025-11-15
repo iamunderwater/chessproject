@@ -314,7 +314,10 @@ function updateTimers(t) {
 
 // -------- QUICK PLAY MATCHED --------
 socket.on("matched", d => {
-  if (d && d.roomId) {
+  if (d && d.roomId && d.role) {
+    // save role for joinRoom
+    localStorage.setItem("quickplayRole", d.role);
+
     window.location = `/room/${d.roomId}`;
   }
 });
@@ -333,6 +336,7 @@ socket.on("waiting", d => {
 
 // -------- INITIAL SETUP --------
 socket.on("init", data => {
+  localStorage.removeItem("quickplayRole");
   role = data.role;
 
   document.getElementById("waiting").classList.add("hidden");
@@ -404,5 +408,6 @@ document.getElementById("play-again").onclick = () => {
 
 // -------- JOIN ROOM ON PAGE LOAD --------
 if (ROOM_ID) {
-  socket.emit("joinRoom", ROOM_ID);
+  const quickRole = localStorage.getItem("quickplayRole"); // "w" or "b" or null
+  socket.emit("joinRoom", { roomId: ROOM_ID, role: quickRole });
 }

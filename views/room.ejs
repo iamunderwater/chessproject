@@ -20,38 +20,39 @@ body {
 
 .hidden { display:none; }
 
-/* ========== YOUR FULL EXISTING STYLES ========== */
+/* ==========================================================
+   NEW SMOOTH CHESS.COM STYLE BOARD LAYOUT
+   ========================================================== */
 .chessboard {
-  display:grid;
-  grid-template-columns:repeat(8,80px);
-  grid-template-rows:repeat(8,80px);
-  width:640px;
-  height:640px;
+  position: relative;
+  width: 640px;
+  height: 640px;
   box-shadow:0 0 20px #333;
   border-radius:6px;
-  transition:transform .4s;
+  overflow: hidden;
 }
 
+/* Each square is absolutely positioned */
 .square {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  position:relative;
+  position: absolute;
+  width: 80px;
+  height: 80px;
 }
 
 .light { background:#f0d9b5; }
 .dark  { background:#b58863; }
 
-.piece-img {
-  width:70px;
-  height:70px;
-  user-select:none;
+/* Pieces now float above the board */
+.piece {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  transition: transform 150ms ease-in-out;
+  will-change: transform;
   pointer-events:none;
 }
 
-.flipped { transform:rotate(180deg); }
-.flipped .square { transform:rotate(180deg); }
-
+/* Timer UI */
 .timer-box {
   font-size:22px;
   font-weight:bold;
@@ -61,6 +62,7 @@ body {
   box-shadow:0 0 10px #00ffff70;
 }
 
+/* Popup */
 #popup {
   position:fixed;
   inset:0;
@@ -79,6 +81,7 @@ body {
   text-align:center;
 }
 
+/* Highlights unchanged — works fine */
 .piece.selected {
   outline: 3px solid rgba(0,200,255,0.9);
   outline-offset: 4px;

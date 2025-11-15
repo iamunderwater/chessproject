@@ -333,7 +333,7 @@ socket.on("waiting", d => {
 
 // -------- INITIAL SETUP --------
 socket.on("init", data => {
-  role = data.role;
+  role = localStorage.getItem("role") || data.role;
 
   document.getElementById("waiting").classList.add("hidden");
   document.getElementById("game").classList.remove("hidden");

@@ -89,7 +89,11 @@ app.get("/create-room", (req, res) => {
 });
 app.get("/room/:id", (req, res) => {
   const roomId = req.params.id.toUpperCase();
-  if (!rooms[roomId]) createRoom(roomId);
+  if (!rooms[roomId]) {
+    // Only create if this room was REALLY created for friend games
+    // but NOT for quickplay auto-generated rooms
+    console.warn(`Room ${roomId} does not exist.`);
+}
   res.render("room", { roomId });
 });
 

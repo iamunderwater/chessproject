@@ -4,6 +4,8 @@ const chess = new Chess();
 // DOM references
 let boardEl, popup, popupText, playAgain, topTimer, bottomTimer;
 
+
+
 let role = null;
 
 // Desktop drag
@@ -23,7 +25,6 @@ let touchDrag = {
 };
 
 // Sounds
-// NOTE: Make sure you have these sound files in a /public/sounds/ directory
 const moveSound = new Audio("/sounds/move.mp3");
 const captureSound = new Audio("/sounds/capture.mp3");
 const endSound = new Audio("/sounds/gameover.mp3");
@@ -34,7 +35,6 @@ const fmt = s =>
   `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 // Piece images
-// NOTE: Make sure you have these images in a /public/pieces/ directory
 const pieceImage = p => {
   const t = { k: "K", q: "Q", r: "R", b: "B", n: "N", p: "P" };
   return `/pieces/${p.color}${t[p.type]}.svg`;
@@ -82,7 +82,7 @@ function renderBoard() {
       cell.dataset.row = r;
       cell.dataset.col = c;
 
-      // Tap-to-tap move (cell click)
+      // Tap-to-tap move
       cell.addEventListener("click", () => {
         if (selectedSource) {
           handleMove(selectedSource, { row: r, col: c });
@@ -90,8 +90,6 @@ function renderBoard() {
         }
       });
 
-      // Tap-to-tap move (cell touchend)
-      // This helps when tapping an empty square
       cell.addEventListener(
         "touchend",
         e => {
@@ -145,7 +143,7 @@ function renderBoard() {
           clearHighlights();
         });
 
-        // -------- Mobile touchstart (on piece) --------
+        // -------- Mobile touchstart --------
         piece.addEventListener(
           "touchstart",
           e => {
@@ -160,11 +158,7 @@ function renderBoard() {
             touchDrag.startSquare = { row: r, col: c };
             touchDrag.lastTargetSquare = null;
 
-            // *** FIXED: Get rendered size for responsive clone ***
-            const pieceSize = img.getBoundingClientRect().width;
             const floating = img.cloneNode(true);
-            floating.style.width = `${pieceSize}px`;
-            floating.style.height = `${pieceSize}px`;
             floating.style.position = "fixed";
             floating.style.left = `${e.touches[0].clientX}px`;
             floating.style.top = `${e.touches[0].clientY}px`;
@@ -180,16 +174,77 @@ function renderBoard() {
             selectedSource = { row: r, col: c };
             selectedElement = piece;
             selectedElement.classList.add("selected");
-
-            // *** FIXED: Attach move/end listeners to document ***
-            document.addEventListener("touchmove", handleTouchMove, { passive: false });
-            document.addEventListener("touchend", handleTouchEnd, { passive: false });
-            document.addEventListener("touchcancel", handleTouchEnd, { passive: false });
           },
           { passive: false }
         );
 
-        // -------- Click selection (tap-to-tap) --------
+        // -------- Mobile touchmove --------
+        piece.addEventListener(
+          "touchmove",
+          e => {
+            if (!touchDrag.active || !touchDrag.floating) return;
+            e.preventDefault();
+            const t = e.touches[0];
+            touchDrag.floating.style.left = `${t.clientX}px`;
+            touchDrag.floating.style.top = `${t.clientY}px`;
+
+            const el = document.elementFromPoint(t.clientX, t.clientY);
+            if (!el) return;
+            const sqEl = el.closest(".square");
+            if (!sqEl) {
+              touchDrag.lastTargetSquare = null;
+              return;
+            }
+
+            touchDrag.lastTargetSquare = {
+              row: parseInt(sqEl.dataset.row),
+              col: parseInt(sqEl.dataset.col)
+            };
+          },
+          { passive: false }
+        );
+
+        // -------- Mobile touchend --------
+        piece.addEventListener(
+          "touchend",
+          e => {
+            if (!touchDrag.active) return;
+
+            e.preventDefault();
+
+            let target = touchDrag.lastTargetSquare;
+
+            if (!target) {
+              const t = e.changedTouches[0];
+              const el = document.elementFromPoint(t.clientX, t.clientY);
+              const sqEl = el && el.closest(".square");
+              if (sqEl) {
+                target = {
+                  row: parseInt(sqEl.dataset.row),
+                  col: parseInt(sqEl.dataset.col)
+                };
+              }
+            }
+
+            if (touchDrag.floating) touchDrag.floating.remove();
+
+            if (target) {
+              handleMove(touchDrag.startSquare, target);
+            }
+
+            touchDrag = {
+              active: false,
+              startSquare: null,
+              floating: null,
+              lastTargetSquare: null
+            };
+
+            clearHighlights();
+          },
+          { passive: false }
+        );
+
+        // -------- Click selection --------
         piece.addEventListener("click", () => {
           if (role !== sq.color) return;
 
@@ -224,114 +279,21 @@ function renderBoard() {
   if (role === "b") boardEl.classList.add("flipped");
   else boardEl.classList.remove("flipped");
 
-  // Don't clear highlights here, renderBoard is called after
-  // a move, but we might want to see the move highlights
-  // clearHighlights();
-}
-
-// ---------------- MOBILE DRAG HANDLERS ----------------
-// *** FIXED: These are now global functions, not event listeners on the piece ***
-
-function handleTouchMove(e) {
-  if (!touchDrag.active || !touchDrag.floating) return;
-  e.preventDefault();
-  const t = e.touches[0];
-  touchDrag.floating.style.left = `${t.clientX}px`;
-  touchDrag.floating.style.top = `${t.clientY}px`;
-
-  const el = document.elementFromPoint(t.clientX, t.clientY);
-  if (!el) return;
-  const sqEl = el.closest(".square");
-  if (!sqEl) {
-    touchDrag.lastTargetSquare = null;
-    return;
-  }
-
-  touchDrag.lastTargetSquare = {
-    row: parseInt(sqEl.dataset.row),
-    col: parseInt(sqEl.dataset.col)
-  };
-}
-
-function handleTouchEnd(e) {
-  if (!touchDrag.active) return;
-  e.preventDefault();
-
-  let target = touchDrag.lastTargetSquare;
-
-  if (!target) {
-    // Fallback if elementFromPoint failed (e.g., finger lifted too fast)
-    const t = e.changedTouches[0];
-    const el = document.elementFromPoint(t.clientX, t.clientY);
-    const sqEl = el && el.closest(".square");
-    if (sqEl) {
-      target = {
-        row: parseInt(sqEl.dataset.row),
-        col: parseInt(sqEl.dataset.col)
-      };
-    }
-  }
-
-  if (touchDrag.floating) touchDrag.floating.remove();
-
-  if (target && touchDrag.startSquare) {
-    handleMove(touchDrag.startSquare, target);
-  } else {
-    // This was likely a tap, not a drag, so we keep the selection
-    // The 'click' listener on the piece will handle selection logic
-  }
-
-  // Reset touch drag state
-  touchDrag = {
-    active: false,
-    startSquare: null,
-    floating: null,
-    lastTargetSquare: null
-  };
-
   clearHighlights();
-
-  // *** FIXED: Remove document-level listeners ***
-  document.removeEventListener("touchmove", handleTouchMove);
-  document.removeEventListener("touchend", handleTouchEnd);
-  document.removeEventListener("touchcancel", handleTouchEnd);
 }
-
 
 // ---------------- HANDLE MOVES ----------------
 function handleMove(s, t) {
   if (!s) return;
-  if (s.row === t.row && s.col === t.col) {
-      // If it's a tap on the same square, let the click handler manage selection
-      return;
-  }
+  if (s.row === t.row && s.col === t.col) return;
 
   const mv = {
     from: `${String.fromCharCode(97 + s.col)}${8 - s.row}`,
-    to: `${String.fromCharCode(97 + t.col)}${8 - s.row}`,
-    promotion: "q" // Always promote to queen for simplicity
+    to: `${String.fromCharCode(97 + t.col)}${8 - t.row}`,
+    promotion: "q"
   };
 
-  // Optimistically make the move locally for sound prediction
-  // This is okay because the server will send the true state anyway
-  const localMove = chess.move(mv);
-  if (localMove) {
-      // Play sound immediately
-      if (chess.in_check()) {
-          checkSound.play();
-      } else if (localMove.captured) {
-          captureSound.play();
-      } else {
-          moveSound.play();
-      }
-      chess.undo(); // Undo, we wait for the server's "boardupdate"
-  }
-
-
   socket.emit("move", { roomId: ROOM_ID, move: mv });
-  
-  // After sending move, clear local selection
-  clearSelectionUI();
 }
 
 // ---------------- TIMERS ----------------
@@ -373,91 +335,42 @@ socket.on("waiting", d => {
 socket.on("init", data => {
   role = data.role;
 
-  // *** EDITED: Show 'waiting' or 'game' based on role ***
-  // Spectators and P2 (black) show game immediately.
-  // P1 (white) will show 'waiting' first.
-  if (role === 'b' || role === null) {
-    document.getElementById("game").classList.remove("hidden");
-  } else if (role === 'w') {
-    // P1 will see 'waiting' until 'startgame' is received
-    document.getElementById("waiting").classList.remove("hidden");
-  }
+  document.getElementById("waiting").classList.add("hidden");
+  document.getElementById("game").classList.remove("hidden");
 
-
-  // Assign DOM elements
   boardEl = document.querySelector(".chessboard");
   popup = document.getElementById("popup");
   popupText = document.getElementById("popup-text");
   playAgain = document.getElementById("play-again");
   topTimer = document.getElementById("top-timer");
   bottomTimer = document.getElementById("bottom-timer");
-  
-  // Add reset button listener
-  playAgain.onclick = () => {
-    socket.emit("resetgame", ROOM_ID);
-    popup.classList.remove("show");
-  };
 
-  // *** EDITED: Load board/timers ONLY if game is visible ***
-  // (i.e., for P2 and spectators)
-  if (role !== 'w') {
-    chess.load(data.fen);
-    renderBoard();
-    updateTimers(data.timers);
-  }
-});
-
-// *** ADDED: New handler for 'startgame' event ***
-socket.on("startgame", data => {
-  // Hide waiting screen and show game
-  document.getElementById("waiting").classList.add("hidden");
-  document.getElementById("game").classList.remove("hidden");
-
-  // Assign DOM elements if they haven't been (e.g., for Player 1)
-  if (!boardEl) {
-    boardEl = document.querySelector(".chessboard");
-    popup = document.getElementById("popup");
-    popupText = document.getElementById("popup-text");
-    playAgain = document.getElementById("play-again");
-    topTimer = document.getElementById("top-timer");
-    bottomTimer = document.getElementById("bottom-timer");
-    
-    // Add reset button listener
-    playAgain.onclick = () => {
-      socket.emit("resetgame", ROOM_ID);
-      popup.classList.remove("show");
-    };
-  }
-
-  // Now load the board and timers
   chess.load(data.fen);
   renderBoard();
   updateTimers(data.timers);
 });
 
-// -------- BOARD UPDATE (REPLACES 'boardstate' and 'move') --------
-// *** FIXED: This is the new single source of truth for board changes ***
-socket.on("boardupdate", data => {
-  if (!data || !data.fen) return;
+// -------- BOARD UPDATE --------
+socket.on("boardstate", fen => {
+  chess.load(fen);
+  renderBoard();
+  clearSelectionUI();
+});
 
-  chess.load(data.fen); // Load the new state. This is the source of truth.
+// -------- MOVE EVENT --------
+socket.on("move", mv => {
+  const res = chess.move(mv);
   renderBoard();
   clearSelectionUI();
 
-  // Play sounds based on the flags from the server
-  if (data.in_check) {
+  if (chess.in_check()) {
     checkSound.play();
-    return; // Check sound overrides others
+    return;
   }
 
-  if (data.flags && data.flags.includes("c")) {
-    captureSound.play();
-  } else if (data.move) {
-    // Only play move sound if it wasn't a capture or check
-    moveSound.play();
-  }
+  if (res && res.captured) captureSound.play();
+  else moveSound.play();
 });
-
 
 // -------- TIMERS --------
 socket.on("timers", t => updateTimers(t));
@@ -468,7 +381,7 @@ socket.on("gameover", winner => {
 
   if (winner.includes("timeout")) {
     if (role === "w" && winner.startsWith("White")) txt = "EZ Timeout Win 😎";
-    else if (role ===b" && winner.startsWith("Black"))
+    else if (role === "b" && winner.startsWith("Black"))
       txt = "Time’s up, victory is mine 🕒🔥";
     else txt = "Skill issue? 🫵😂";
   } else if (winner === "Draw") txt = "Both are noobs";
@@ -482,6 +395,12 @@ socket.on("gameover", winner => {
   popup.classList.add("show");
   endSound.play();
 });
+
+// -------- RESET BUTTON --------
+document.getElementById("play-again").onclick = () => {
+  socket.emit("resetgame", ROOM_ID);
+  popup.classList.remove("show");
+};
 
 // -------- JOIN ROOM ON PAGE LOAD --------
 if (ROOM_ID) {

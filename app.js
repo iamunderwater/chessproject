@@ -128,8 +128,12 @@ io.on("connection", (socket) => {
     return;
   }
 
-  if (!rooms[roomId]) createRoom(roomId);
-  const room = rooms[roomId];
+  if (!rooms[roomId]) {
+    console.log(`joinRoom: room ${roomId} does NOT exist, refusing join.`);
+    socket.emit("info", { text: "Room does not exist or expired." });
+    return;
+}
+const room = rooms[roomId];
 
   // join socket.io room & record currentRoom
   joinSocketRoom(roomId);

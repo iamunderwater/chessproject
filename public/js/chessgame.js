@@ -121,7 +121,6 @@ function renderPieces() {
       piece.className = "piece";
       piece.dataset.square = square;
       piece.dataset.color = sq.color;
-      // place instantly (no transition on initial render)
       piece.style.transition = "none";
       piece.style.transform = `translate(${c * TILE}px, ${r * TILE}px)`;
 
@@ -133,7 +132,7 @@ function renderPieces() {
       attachPointerHandlers(piece, sq.color);
 
       boardEl.appendChild(piece);
-      // force reflow then enable transitions for later moves
+
       requestAnimationFrame(() => {
         piece.style.transition = `transform ${TRANS_MS}ms ease-in-out`;
       });
@@ -192,7 +191,6 @@ function attachPointerHandlers(pieceEl, color) {
 
     if (to && (to.row !== from.row || to.col !== from.col)) {
       handleMove(from, to);
-      // optimistic visual
       const toSquare = rcToSquare(to.row, to.col);
       const { x, y } = squareToPixels(toSquare);
       draggingEl.style.transition = `transform ${TRANS_MS}ms ease-in-out`;
@@ -289,7 +287,7 @@ socket.on("waiting", d => {
 
 socket.on("init", data => {
   console.log("CLIENT init event:", data);
-  localStorage.removeItem("quickplayRole");
+  // Already removed before joinRoom now
   role = data.role;
   console.log("CLIENT role set to:", role);
 
@@ -377,6 +375,10 @@ function updateTimers(t) {
 
 // join on load
 if (ROOM_ID) {
-  const quickRole = localStorage.getItem("quickplayRole");
+  let quickRole = localStorage.getItem("quickplayRole");
+
+  // FIX: clear it BEFORE sending joinRoom
+  localStorage.removeItem("quickplayRole");
+
   socket.emit("joinRoom", { roomId: ROOM_ID, role: quickRole });
 }

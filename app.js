@@ -281,8 +281,14 @@ socket.data.currentRoom = roomId;
       io.to(roomId).emit("timers", room.timers);
 
       // restart timers safely
-      stopRoomTimer(roomId);
-      startRoomTimer(roomId);
+      if (!room.isTimerRunning) {
+  // First move of the game
+  startRoomTimer(roomId);
+} else {
+  // Subsequent moves → switch timer
+  stopRoomTimer(roomId);
+  startRoomTimer(roomId);
+}
 
       // check game over
       if (room.chess.isGameOver()) {

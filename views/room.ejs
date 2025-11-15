@@ -9,7 +9,6 @@
   :root{
     --bg: #0d0d0d;
     --panel: #111;
-    --accent: #00ffff70;
     --whiteSquare: #f0d9b5;
     --darkSquare: #b58863;
   }
@@ -26,32 +25,30 @@
     padding: 18px;
   }
 
-  /* Page container */
+  /* Layout container */
   .container {
     width: 100%;
-    max-width: 1200px;
+    max-width: 1300px;
     display:flex;
     align-items:center;
     justify-content:center;
-    gap: 24px;
   }
 
-  /* Game area: timers + board */
   .game-area {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: 24px;
     width: 100%;
   }
 
-  /* Timer column */
+  /* Timers */
   .timer-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    min-width: 120px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:12px;
+    min-width:120px;
   }
 
   .timer-box {
@@ -61,74 +58,72 @@
     box-shadow: 0 0 14px rgba(0,0,0,0.6);
     text-align: center;
     font-weight: 700;
-    font-size: clamp(18px, 2.6vw, 28px);
-    width: 110px;
-    user-select: none;
+    font-size: clamp(16px, 2.5vw, 28px);
+    width:120px;
   }
 
   .timer-label {
-    display:block;
     font-size: 12px;
-    font-weight:600;
-    opacity:0.7;
-    margin-bottom:6px;
+    opacity: 0.8;
   }
 
-  /* Board container to constrain size */
+  /* Board container */
   .board-wrap {
+    width: min(70vw, 70vh, 740px);
     display:flex;
     align-items:center;
     justify-content:center;
-    width: min(68vw, 68vh, 720px);
   }
 
-  /* Responsive Chessboard */
+  /* Chessboard */
   .chessboard {
     width: 100%;
-    height: 100%;
-    aspect-ratio: 1 / 1;
+    aspect-ratio: 1/1;
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    grid-template-rows: repeat(8, 1fr);
-    box-shadow: 0 0 20px #222;
+    grid-template-columns: repeat(8,1fr);
+    grid-template-rows: repeat(8,1fr);
     border-radius: 6px;
-    transition: transform .25s ease;
-    overflow: hidden;
+    overflow:hidden;
+    box-shadow:0 0 20px #222;
   }
 
   .square {
     display:flex;
-    align-items:center;
     justify-content:center;
+    align-items:center;
     position:relative;
   }
 
   .light { background: var(--whiteSquare); }
-  .dark  { background: var(--darkSquare); }
+  .dark { background: var(--darkSquare); }
 
-  .piece-img {
-    width: 80%;
-    height: 80%;
-    user-select:none;
-    pointer-events:none;
+  /* PROPER piece centering */
+  .piece {
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
 
-  .flipped { transform: rotate(180deg); }
-  .flipped .square { transform: rotate(180deg); }
-
-  /* Selected piece outline */
-  .piece.selected {
-    outline: 3px solid rgba(0,200,255,0.9);
-    outline-offset: 4px;
-    border-radius: 6px;
+  .piece-img {
+    width:90%;
+    height:auto;
+    object-fit:contain;
+    pointer-events:none;
+    user-select:none;
   }
 
   /* Highlights */
+  .piece.selected {
+    outline: 3px solid rgba(0,200,255,0.9);
+    outline-offset: 4px;
+  }
   .square.dot::after {
     content:"";
     width:18%;
     height:18%;
-    background: rgba(0,0,0,0.25);
+    background:rgba(0,0,0,0.25);
     border-radius:50%;
     position:absolute;
   }
@@ -136,58 +131,51 @@
     content:"";
     width:36%;
     height:36%;
-    border:4px solid rgba(255,0,0,0.65);
+    border:4px solid rgba(255,0,0,0.6);
     border-radius:50%;
     position:absolute;
   }
 
   /* Popup */
   #popup {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.75);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 40;
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,0.75);
+    z-index:50;
   }
   #popup.show { display:flex; }
+
   #popup-content {
     background:#222;
-    padding:28px 36px;
+    padding:30px 40px;
     border-radius:12px;
     text-align:center;
   }
+
   #play-again {
-    padding:8px 16px;
-    border-radius:8px;
     background:#0b7;
-    color:#041;
     border:none;
-    font-weight:700;
+    color:#041;
+    padding:10px 18px;
+    border-radius:10px;
+    font-weight:bold;
     cursor:pointer;
   }
 
-  /* Small screens: stack timers above/below board */
+  /* Mobile responsive */
   @media (max-width: 880px) {
     .game-area {
       flex-direction: column;
-      gap: 12px;
+      gap: 16px;
     }
     .timer-col {
-      flex-direction: row;
-      gap: 12px;
-      min-width: auto;
+      flex-direction:row;
+      gap:16px;
+      min-width:unset;
     }
-    .timer-box { width: auto; padding: 10px 14px; font-size: clamp(14px, 5.5vw, 20px); }
-    .container { padding: 12px; }
-    .board-wrap { width: min(92vw, 92vh); }
-  }
-
-  /* Very narrow phones: slightly smaller timers */
-  @media (max-width: 420px) {
-    .timer-box { font-size: 16px; padding: 8px 12px; }
-    .timer-label { font-size: 11px; }
   }
 </style>
 </head>
@@ -195,11 +183,12 @@
 <body>
   <div class="container">
     <div class="game-area">
-      <!-- Left timer column (opponent) -->
-      <div class="timer-col" style="align-items:center;">
-        <div class="timer-box" id="left-timer">
-          <span class="timer-label" id="left-label">Opponent</span>
-          <span id="left-time">05:00</span>
+
+      <!-- Left (opponent) -->
+      <div class="timer-col">
+        <div class="timer-box">
+          <div class="timer-label" id="left-label">Opponent</div>
+          <div id="left-time">05:00</div>
         </div>
       </div>
 
@@ -208,16 +197,18 @@
         <div class="chessboard"></div>
       </div>
 
-      <!-- Right timer column (you) -->
-      <div class="timer-col" style="align-items:center;">
-        <div class="timer-box" id="right-timer">
-          <span class="timer-label" id="right-label">You</span>
-          <span id="right-time">05:00</span>
+      <!-- Right (you) -->
+      <div class="timer-col">
+        <div class="timer-box">
+          <div class="timer-label" id="right-label">You</div>
+          <div id="right-time">05:00</div>
         </div>
       </div>
+
     </div>
   </div>
 
+  <!-- Popup -->
   <div id="popup">
     <div id="popup-content">
       <span id="popup-text"></span><br><br>
@@ -232,4 +223,3 @@
 </script>
 <script src="/js/chessgame.js"></script>
 </body>
-</html>

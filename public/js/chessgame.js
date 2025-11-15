@@ -2,9 +2,7 @@ const socket = io();
 const chess = new Chess();
 
 // DOM references
-let boardEl, popup, popupText, playAgain, topTimer, bottomTimer;
-
-
+let boardEl, popup, popupText, playAgain, leftTimer, rightTimer;
 
 let role = null;
 
@@ -299,12 +297,25 @@ function handleMove(s, t) {
 // ---------------- TIMERS ----------------
 function updateTimers(t) {
   if (!t) return;
+  // left-timer shows opponent, right-timer shows you
   if (role === "b") {
-    bottomTimer.innerText = fmt(t.b);
-    topTimer.innerText = fmt(t.w);
+    // you are black -> your time is t.b
+    document.getElementById("right-time").innerText = fmt(t.b);
+    document.getElementById("left-time").innerText = fmt(t.w);
+    // labels (optional)
+    document.getElementById("right-label").innerText = "You (Black)";
+    document.getElementById("left-label").innerText = "Opponent (White)";
+  } else if (role === "w") {
+    document.getElementById("right-time").innerText = fmt(t.w);
+    document.getElementById("left-time").innerText = fmt(t.b);
+    document.getElementById("right-label").innerText = "You (White)";
+    document.getElementById("left-label").innerText = "Opponent (Black)";
   } else {
-    bottomTimer.innerText = fmt(t.w);
-    topTimer.innerText = fmt(t.b);
+    // watcher/spectator: show white on left, black on right by default
+    document.getElementById("left-time").innerText = fmt(t.w);
+    document.getElementById("right-time").innerText = fmt(t.b);
+    document.getElementById("right-label").innerText = "Black";
+    document.getElementById("left-label").innerText = "White";
   }
 }
 
@@ -321,29 +332,22 @@ socket.on("matched", d => {
 
 // -------- WAITING SCREEN (Friend Mode or Quickplay) --------
 socket.on("waiting", d => {
-  document.getElementById("game").classList.add("hidden");
-  document.getElementById("waiting").classList.remove("hidden");
-
-  document.getElementById("wait-text").innerText = d.text;
-
-  if (d.link) {
-    document.getElementById("room-link").innerText = d.link;
-  }
+  document.getElementById("game").classList?.add("hidden");
+  // we no longer use a separate waiting UI in this template; fallback:
+  alert(d && d.text ? d.text : "Waiting...");
 });
 
 // -------- INITIAL SETUP --------
 socket.on("init", data => {
   role = data.role;
 
-  document.getElementById("waiting").classList.add("hidden");
-  document.getElementById("game").classList.remove("hidden");
-
+  // page elements
   boardEl = document.querySelector(".chessboard");
   popup = document.getElementById("popup");
   popupText = document.getElementById("popup-text");
   playAgain = document.getElementById("play-again");
-  topTimer = document.getElementById("top-timer");
-  bottomTimer = document.getElementById("bottom-timer");
+  leftTimer = document.getElementById("left-time");
+  rightTimer = document.getElementById("right-time");
 
   chess.load(data.fen);
   renderBoard();

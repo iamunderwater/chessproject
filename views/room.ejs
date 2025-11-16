@@ -6,6 +6,44 @@
 <title>Chess Game</title>
 
 <style>
+  .side-btn:hover {
+  background: #222;
+  transform: scale(1.05);
+}
+
+.confirm-box {
+  position: absolute;
+  right: -155px;
+  width: 130px;
+  background: #111;
+  padding: 12px;
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(0,255,255,0.4);
+  text-align: center;
+  font-size: 16px;
+  z-index: 5;
+}
+
+.confirm-row {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 8px;
+}
+
+.confirm-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 20px;
+  background: #222;
+  color: white;
+}
+
+.confirm-btn.yes:hover { background:#0a0; }
+.confirm-btn.no:hover { background:#a00; }
+
+.hidden { display:none; }
+
 body {
   background:#0d0d0d;
   color:#fff;
@@ -122,6 +160,34 @@ body {
   box-shadow: 0 0 12px rgba(0,255,255,0.4);
 }
 
+.side-buttons {
+  position: absolute;
+  right: -155px;
+  top: 200px;
+  width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.side-btn {
+  background: #111;
+  color: #fff;
+  padding: 14px 5px;
+  font-size: 20px;
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(0,255,255,0.4);
+  user-select: none;
+  transition: .2s;
+}
+
+.side-btn:hover {
+  background: #222;
+  transform: scale(1.05);
+}
+
 /* Top timer position */
 #top-timer {
   top: 25px;
@@ -155,6 +221,29 @@ body {
 
     <!-- BOTTOM TIMER (right side) -->
     <div id="bottom-timer" class="side-timer">05:00</div>
+
+        <div class="side-buttons">
+        <div id="resign-btn" class="side-btn">Resign 😭</div>
+        <div id="draw-btn" class="side-btn">Draw 🤝</div>
+        <div id="my-confirm-box" class="confirm-box hidden">
+    <div id="my-confirm-text"></div>
+    <div class="confirm-row">
+        <button id="my-yes" class="confirm-btn yes">✔</button>
+        <button id="my-no" class="confirm-btn no">❌</button>
+    </div>
+</div>
+
+<!-- CONFIRM BOX FOR OPPONENT DRAW OFFER -->
+<div id="opp-confirm-box" class="confirm-box hidden">
+    <div id="opp-confirm-text"></div>
+    <div class="confirm-row">
+        <button id="opp-yes" class="confirm-btn yes">✔</button>
+        <button id="opp-no" class="confirm-btn no">❌</button>
+    </div>
+</div>
+    </div>
+    
+
 
   </div>
 

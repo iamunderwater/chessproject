@@ -361,6 +361,17 @@ socket.on("boardstate", fen => {
   clearSelectionUI();
 });
 
+socket.on("drawOffered", () => {
+  if (confirm("Your opponent offered a draw. Accept?")) {
+    socket.emit("acceptDraw", ROOM_ID);
+  }
+});
+
+socket.on("gameover", msg => {
+  popupText.innerText = msg;
+  popup.classList.add("show");
+});
+
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
   const res = chess.move(mv);
@@ -406,8 +417,81 @@ document.getElementById("play-again").onclick = () => {
   popup.classList.remove("show");
 };
 
+document.getElementById("resign-btn").onclick = () => {
+  socket.emit("resign", ROOM_ID);
+};
+
+document.getElementById("draw-btn").onclick = () => {
+  socket.emit("offerDraw", ROOM_ID);
+};
+
 // -------- JOIN ROOM ON PAGE LOAD --------
 if (ROOM_ID) {
   const quickRole = localStorage.getItem("quickplayRole"); // "w" or "b" or null
   socket.emit("joinRoom", { roomId: ROOM_ID, role: quickRole });
 }
+const resignBtn = document.getElementById("resign-btn");
+const drawBtn = document.getElementById("draw-btn");
+
+const myBox = document.getElementById("my-confirm-box");
+const myText = document.getElementById("my-confirm-text");
+const myYes = document.getElementById("my-yes");
+const myNo = document.getElementById("my-no");
+
+const oppBox = document.getElementById("opp-confirm-box");
+const oppText = document.getElementById("opp-confirm-text");
+const oppYes = document.getElementById("opp-yes");
+const oppNo = document.getElementById("opp-no");
+
+
+// ---------------- RESIGN ----------------
+resignBtn.onclick = () => {
+    myText.innerText = "Are you sure you want to resign?";
+    myBox.classList.remove("hidden");
+
+    myYes.onclick = () => {
+        socket.emit("resign", ROOM_ID);
+        myBox.classList.add("hidden");
+    };
+    myNo.onclick = () => {
+        myBox.classList.add("hidden");
+    };
+};
+
+
+// ---------------- DRAW OFFER ----------------
+drawBtn.onclick = () => {
+    myText.innerText = "Offer a draw?";
+    myBox.classList.remove("hidden");
+
+    myYes.onclick = () => {
+        socket.emit("offerDraw", ROOM_ID);
+        myBox.classList.add("hidden");
+    };
+    myNo.onclick = () => {
+        myBox.classList.add("hidden");
+    };
+};
+
+
+// ---------------- OPPONENT OFFERED DRAW ----------------
+socket.on("drawOffered", () => {
+    oppText.innerText = "Opponent offers draw";
+    oppBox.classList.remove("hidden");
+
+    oppYes.onclick = () => {
+        socket.emit("acceptDraw", ROOM_ID);
+        oppBox.classList.add("hidden");
+    };
+
+    oppNo.onclick = () => {
+        socket.emit("declineDraw", ROOM_ID);
+        oppBox.classList.add("hidden");
+    };
+});
+
+
+// -------- When opponent declines your draw --------
+socket.on("drawDeclined", () => {
+    alert("Opponent declined your draw request.");
+});

@@ -225,6 +225,41 @@ socket.on("joinRoom", data => {
   }
 
 });
+
+socket.on("resign", roomId => {
+  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  const room = rooms[roomId];
+  let winner = "";
+  if (socket.id === room.white) winner = "Black";
+  else if (socket.id === room.black) winner = "White";
+
+  io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
+  stopRoomTimer(roomId);
+});
+
+// ---------- DRAW OFFER ----------
+socket.on("offerDraw", roomId => {
+  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  const room = rooms[roomId];
+  const opponent =
+    socket.id === room.white ? room.black :
+    socket.id === room.black ? room.white : null;
+
+  if (opponent) io.to(opponent).emit("drawOffered");
+});
+
+// ---------- DRAW ACCEPT ----------
+socket.on("acceptDraw", roomId => {
+  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  io.to(roomId).emit("gameover", "Draw");
+  stopRoomTimer(roomId);
+});
   // ---------------- Quick Play (enter queue)
   // client emits: socket.emit('enterQuickplay')
   socket.on("enterQuickplay", () => {
@@ -347,6 +382,44 @@ socket.data.currentRoom = roomId;
     io.to(roomId).emit("boardstate", room.chess.fen());
     io.to(roomId).emit("timers", room.timers);
   });
+
+  socket.on("resign", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+  const room = rooms[roomId];
+
+  const winner = socket.id === room.white ? "Black" : "White";
+  io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
+  stopRoomTimer(roomId);
+});
+
+socket.on("offerDraw", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  const room = rooms[roomId];
+  const opp = socket.id === room.white ? room.black : room.white;
+
+  if (opp) io.to(opp).emit("drawOffered");
+});
+
+socket.on("acceptDraw", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  io.to(roomId).emit("gameover", "Draw");
+  stopRoomTimer(roomId);
+});
+
+socket.on("declineDraw", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  const room = rooms[roomId];
+  const opp = socket.id === room.white ? room.black : room.white;
+
+  if (opp) io.to(opp).emit("drawDeclined");
+});
 
   // ---------------- disconnect handling ----------------
   socket.on("disconnect", () => {

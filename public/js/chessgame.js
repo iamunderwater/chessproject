@@ -469,13 +469,28 @@ socket.on("gameover", winner => {
   let txt = "";
 
   // ========== RESIGNATION ==========
-  if (typeof winner === "string" && winner.includes("resigned")) {
-    if (winner.startsWith("White")) {
-      txt = role === "b" ? "Opponent resigned — you win! 😎" : "You resigned! 💀";
-    } else {
-      txt = role === "w" ? "Opponent resigned — you win! 😎" : "You resigned! 💀";
+  let w = (winner || "").toString().trim().toLowerCase();
+
+if (w.includes("resign")) {
+
+    let whiteResigned = w.includes("white");
+    let blackResigned = w.includes("black");
+
+    if (whiteResigned) {
+        txt = role === "b"
+            ? "Opponent resigned — you win! 😎"
+            : "You resigned! 💀";
     }
-  }
+    else if (blackResigned) {
+        txt = role === "w"
+            ? "Opponent resigned — you win! 😎"
+            : "You resigned! 💀";
+    }
+    else {
+        // fallback (in case the server sends weird strings)
+        txt = "Opponent resigned — you win! 😎";
+    }
+}
 
   // ========== TIMEOUT ==========
   else if (typeof winner === "string" && winner.includes("timeout")) {

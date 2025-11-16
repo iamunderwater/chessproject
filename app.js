@@ -263,23 +263,20 @@ socket.on("joinRoom", data => {
     const room = createRoom(roomId);
 
     // assign
-    room.white = waitingSocketId;
-    room.black = socket.id;
+    const roomId = makeRoomId();
+    createRoom(roomId);
 
-    // both sockets should join socket.io room
-    waitingSocket.join(roomId);
-socket.join(roomId);
-
-waitingSocket.data.currentRoom = roomId;
-socket.data.currentRoom = roomId;
-    // clear quickWaiting
+// Clear queue
     quickWaiting = null;
+
+// Mark both as no longer waiting
     waitingSocket.data.isInQuickplay = false;
     socket.data.isInQuickplay = false;
 
-    // Inform both clients to navigate to room URL (client will handle redirect)
+// Tell clients: go to this room and play these colors
     io.to(waitingSocketId).emit("matched", { roomId, role: "w" });
     io.to(socket.id).emit("matched", { roomId, role: "b" });
+
 
     // send initial game state once they connect/join room page
     // We'll still rely on 'joinRoom' from client once they load the /room/:id page to initialize fully.

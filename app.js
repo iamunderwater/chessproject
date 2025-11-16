@@ -228,49 +228,64 @@ socket.on("joinRoom", data => {
   // ---------------- Quick Play (enter queue)
   // client emits: socket.emit('enterQuickplay')
   socket.on("enterQuickplay", () => {
-  // if already in queue, ignore
-  if (quickWaiting && quickWaiting.socketId === socket.id) {
-    socket.emit("info", { text: "Already searching..." });
-    return;
-  }
+    // if already in queue, ignore
+    if (quickWaiting && quickWaiting.socketId === socket.id) {
+      socket.emit("info", { text: "Already searching..." });
+      return;
+    }
 
-  // If no one waiting -> become the waiting player
-  if (!quickWaiting) {
-    quickWaiting = { socketId: socket.id, createdAt: Date.now() };
-    socket.emit("looking", { text: "Looking for available players..." });
-    console.log("Quickplay: waiting:", socket.id);
+    // If no one waiting -> become the waiting player
+    if (!quickWaiting) {
+      quickWaiting = { socketId: socket.id, createdAt: Date.now() };
+      socket.emit("looking", { text: "Looking for available players..." });
+      console.log("Quickplay: waiting:", socket.id);
 
-    socket.data.isInQuickplay = true;
-    return;
-  }
+      // cleanup on disconnect will handle clearing quickWaiting
+      socket.data.isInQuickplay = true;
+      return;
+    }
 
-  // If we reach here, we match them
-  const waitingSocketId = quickWaiting.socketId;
-  const waitingSocket = io.sockets.sockets.get(waitingSocketId);
+    // If we reach here, there's someone waiting -> create room and match
+    // Validate waiting is still connected
+    const waitingSocketId = quickWaiting.socketId;
+    const waitingSocket = io.sockets.sockets.get(waitingSocketId);
 
-  // If waiting player disconnected → replace queue with current player
-  if (!waitingSocket) {
-    quickWaiting = { socketId: socket.id, createdAt: Date.now() };
-    socket.data.isInQuickplay = true;
-    socket.emit("looking", { text: "Looking for available players..." });
-    return;
-  }
+    if (!waitingSocket) {
+      // waiting disconnected, replace with current
+      quickWaiting = { socketId: socket.id, createdAt: Date.now() };
+      socket.data.isInQuickplay = true;
+      socket.emit("looking", { text: "Looking for available players..." });
+      return;
+    }
 
-  // MATCH THEM
-  const roomId = makeRoomId();
-  createRoom(roomId);
+    // Create new room and assign first waiting user as white, current as black
+    const roomId = makeRoomId();
+    const room = createRoom(roomId);
 
-  // Clear queue
-  quickWaiting = null;
-  waitingSocket.data.isInQuickplay = false;
-  socket.data.isInQuickplay = false;
+    // assign
+    room.white = waitingSocketId;
+    room.black = socket.id;
 
-  // Tell both clients to go to room with roles
-  io.to(waitingSocketId).emit("matched", { roomId, role: "w" });
-  io.to(socket.id).emit("matched", { roomId, role: "b" });
+    // both sockets should join socket.io room
+    waitingSocket.join(roomId);
+socket.join(roomId);
 
-  console.log(`Quickplay matched ${waitingSocketId} <> ${socket.id} -> room ${roomId}`);
-});
+waitingSocket.data.currentRoom = roomId;
+socket.data.currentRoom = roomId;
+    // clear quickWaiting
+    quickWaiting = null;
+    waitingSocket.data.isInQuickplay = false;
+    socket.data.isInQuickplay = false;
+
+    // Inform both clients to navigate to room URL (client will handle redirect)
+    io.to(waitingSocketId).emit("matched", { roomId, role: "w" });
+    io.to(socket.id).emit("matched", { roomId, role: "b" });
+
+    // send initial game state once they connect/join room page
+    // We'll still rely on 'joinRoom' from client once they load the /room/:id page to initialize fully.
+
+    console.log(`Quickplay matched ${waitingSocketId} <> ${socket.id} -> room ${roomId}`);
+  });
 
   // ---------------- Move handler per room
   socket.on("move", (data) => {

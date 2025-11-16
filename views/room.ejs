@@ -6,11 +6,165 @@
 <title>Chess Game</title>
 
 <style>
-  .side-btn:hover {
+
+/* ---------------- GLOBAL / BODY ---------------- */
+
+body {
+  background:#0d0d0d;
+  color:#fff;
+  font-family:sans-serif;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:100vh;
+  flex-direction:column;
+  gap:10px;
+}
+
+.hidden { display:none; }
+
+/* ---------------- CHESSBOARD + PIECES ---------------- */
+
+/* >>> THIS IS THE FINAL, CLEAN, NON-CONFLICTING VERSION <<< */
+
+.chessboard {
+  /* grid */
+  display:grid;
+  grid-template-columns:repeat(8,80px);
+  grid-template-rows:repeat(8,80px);
+  width:640px;
+  height:640px;
+  box-shadow:0 0 20px #333;
+  border-radius:6px;
+  transition:transform .4s;
+
+  /* required for animation */
+  position: relative;
+  overflow: visible;
+}
+
+.square {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+}
+
+.light { background:#f0d9b5; }
+.dark  { background:#b58863; }
+
+/* Piece container */
+.piece {
+  position: absolute;
+  left:0;
+  top:0;
+  transition: transform 150ms ease;  /* for DOM-based animations */
+  cursor: grab;
+}
+
+/* Piece image */
+.piece-img {
+  width:70px;
+  height:70px;
+  pointer-events:none;
+  user-select:none;
+}
+
+/* Flipped board */
+.flipped { transform:rotate(180deg); }
+.flipped .square { transform:rotate(180deg); }
+
+/* ---------------- MOVE HIGHLIGHT DOTS ---------------- */
+
+.piece.selected {
+  outline: 3px solid rgba(0,200,255,0.9);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.square.dot::after {
+  content:"";
+  width:18px;
+  height:18px;
+  background:rgba(0,0,0,0.3);
+  border-radius:50%;
+  position:absolute;
+}
+
+.square.capture::after {
+  content:"";
+  width:36px;
+  height:36px;
+  border:4px solid rgba(255,0,0,0.65);
+  border-radius:50%;
+  position:absolute;
+}
+
+/* ---------------- TIMERS ---------------- */
+
+.timer-box {
+  font-size:22px;
+  font-weight:bold;
+  background:#111;
+  padding:6px 18px;
+  border-radius:10px;
+  box-shadow:0 0 10px #00ffff70;
+}
+
+/* Wrapper = board + timers */
+.board-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* SIDE TIMERS (right side of board) */
+.side-timer {
+  position: absolute;
+  right: -140px;
+  width: 120px;
+  padding: 10px 0;
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  background: #111;
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(0,255,255,0.4);
+}
+
+#top-timer { top: 25px; }
+#bottom-timer { bottom: 25px; }
+
+/* ---------------- SIDE BUTTONS + CONFIRM BOX ---------------- */
+
+.side-buttons {
+  position: absolute;
+  right: -155px;
+  top: 200px;
+  width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.side-btn {
+  background: #111;
+  color: #fff;
+  padding: 14px 5px;
+  font-size: 20px;
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(0,255,255,0.4);
+  user-select: none;
+  transition: .2s;
+}
+
+.side-btn:hover {
   background: #222;
   transform: scale(1.05);
 }
 
+/* Confirm boxes */
 .confirm-box {
   position: absolute;
   right: -155px;
@@ -42,70 +196,7 @@
 .confirm-btn.yes:hover { background:#0a0; }
 .confirm-btn.no:hover { background:#a00; }
 
-.hidden { display:none; }
-
-body {
-  background:#0d0d0d;
-  color:#fff;
-  font-family:sans-serif;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  height:100vh;
-  flex-direction:column;
-  gap:10px;
-}
-
-.hidden { display:none; }
-
-/* ========== YOUR FULL EXISTING STYLES ========== */
-.chessboard {
-  display:grid;
-  grid-template-columns:repeat(8,80px);
-  grid-template-rows:repeat(8,80px);
-  width:640px;
-  height:640px;
-  box-shadow:0 0 20px #333;
-  border-radius:6px;
-  transition:transform .4s;
-}
-
-.chessboard {
-  position: relative;
-}
-
-.piece {
-  position: absolute;
-  transition: transform 150ms ease;
-}
-.square {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  position:relative;
-}
-
-.light { background:#f0d9b5; }
-.dark  { background:#b58863; }
-
-.piece-img {
-  width:70px;
-  height:70px;
-  user-select:none;
-  pointer-events:none;
-}
-
-.flipped { transform:rotate(180deg); }
-.flipped .square { transform:rotate(180deg); }
-
-.timer-box {
-  font-size:22px;
-  font-weight:bold;
-  background:#111;
-  padding:6px 18px;
-  border-radius:10px;
-  box-shadow:0 0 10px #00ffff70;
-}
+/* ---------------- GAME OVER POPUP ---------------- */
 
 #popup {
   position:fixed;
@@ -116,6 +207,7 @@ body {
   justify-content:center;
   z-index:10;
 }
+
 #popup.show { display:flex; }
 
 #popup-content {
@@ -125,86 +217,6 @@ body {
   text-align:center;
 }
 
-.piece.selected {
-  outline: 3px solid rgba(0,200,255,0.9);
-  outline-offset: 4px;
-  border-radius: 6px;
-}
-
-.square.dot::after {
-  content:"";
-  width:18px;
-  height:18px;
-  background:rgba(0,0,0,0.3);
-  border-radius:50%;
-  position:absolute;
-}
-.square.capture::after {
-  content:"";
-  width:36px;
-  height:36px;
-  border:4px solid rgba(255,0,0,0.65);
-  border-radius:50%;
-  position:absolute;
-}
-
-/* Wrapper = board + timers */
-.board-wrapper {
-  position: relative;
-  display: inline-block;
-}
-
-/* SIDE TIMERS (right side of board) */
-.side-timer {
-  position: absolute;
-  right: -140px;    /* distance from chessboard */
-  width: 120px;
-  padding: 10px 0;
-  text-align: center;
-  font-size: 24px;
-  font-weight: bold;
-  background: #111;
-  border-radius: 10px;
-  box-shadow: 0 0 12px rgba(0,255,255,0.4);
-}
-
-.side-buttons {
-  position: absolute;
-  right: -155px;
-  top: 200px;
-  width: 130px;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.side-btn {
-  background: #111;
-  color: #fff;
-  padding: 14px 5px;
-  font-size: 20px;
-  border-radius: 10px;
-  text-align: center;
-  cursor: pointer;
-  box-shadow: 0 0 12px rgba(0,255,255,0.4);
-  user-select: none;
-  transition: .2s;
-}
-
-.side-btn:hover {
-  background: #222;
-  transform: scale(1.05);
-}
-
-/* Top timer position */
-#top-timer {
-  top: 25px;
-}
-
-/* Bottom timer position */
-#bottom-timer {
-  bottom: 25px;
-}
 </style>
 </head>
 
@@ -221,41 +233,44 @@ body {
 
   <div class="board-wrapper">
 
-    <!-- TOP TIMER (right side) -->
+    <!-- TOP TIMER -->
     <div id="top-timer" class="side-timer">05:00</div>
 
     <!-- CHESSBOARD -->
     <div class="chessboard"></div>
 
-    <!-- BOTTOM TIMER (right side) -->
+    <!-- BOTTOM TIMER -->
     <div id="bottom-timer" class="side-timer">05:00</div>
 
-        <div class="side-buttons">
-        <div id="resign-btn" class="side-btn">Resign 😭</div>
-        <div id="draw-btn" class="side-btn">Draw 🤝</div>
-        <div id="draw-message" style="margin-top:10px; color:#ff4444;"></div>
-        <div id="my-confirm-box" class="confirm-box hidden">
-    <div id="my-confirm-text"></div>
-    <div class="confirm-row">
-        <button id="my-yes" class="confirm-btn yes">✔</button>
-        <button id="my-no" class="confirm-btn no">❌</button>
-    </div>
-</div>
+    <!-- SIDE BUTTONS -->
+    <div class="side-buttons">
+      <div id="resign-btn" class="side-btn">Resign 😭</div>
+      <div id="draw-btn" class="side-btn">Draw 🤝</div>
+      <div id="draw-message" style="margin-top:10px; color:#ff4444;"></div>
 
-<!-- CONFIRM BOX FOR OPPONENT DRAW OFFER -->
-<div id="opp-confirm-box" class="confirm-box hidden">
-    <div id="opp-confirm-text"></div>
-    <div class="confirm-row">
-        <button id="opp-yes" class="confirm-btn yes">✔</button>
-        <button id="opp-no" class="confirm-btn no">❌</button>
-    </div>
-</div>
-    </div>
+      <!-- MY CONFIRM BOX -->
+      <div id="my-confirm-box" class="confirm-box hidden">
+        <div id="my-confirm-text"></div>
+        <div class="confirm-row">
+          <button id="my-yes" class="confirm-btn yes">✔</button>
+          <button id="my-no" class="confirm-btn no">❌</button>
+        </div>
+      </div>
 
+      <!-- OPPONENT CONFIRM BOX -->
+      <div id="opp-confirm-box" class="confirm-box hidden">
+        <div id="opp-confirm-text"></div>
+        <div class="confirm-row">
+          <button id="opp-yes" class="confirm-btn yes">✔</button>
+          <button id="opp-no" class="confirm-btn no">❌</button>
+        </div>
+      </div>
 
+    </div>
 
   </div>
 
+  <!-- GAME OVER POPUP -->
   <div id="popup">
     <div id="popup-content">
       <span id="popup-text"></span><br><br>
@@ -263,11 +278,13 @@ body {
     </div>
   </div>
 </div>
+
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <script>
   const ROOM_ID = "<%= roomId %>";
 </script>
 <script src="/js/chessgame.js"></script>
+
 </body>
 </html>

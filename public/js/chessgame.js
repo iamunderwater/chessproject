@@ -361,9 +361,7 @@ socket.on("boardstate", fen => {
   clearSelectionUI();
 });
 
-socket.on("drawOffered", () => {
-  document.getElementById("draw-offer-popup").classList.remove("hidden");
-});
+
 
 // Accept
 document.getElementById("draw-yes").onclick = () => {

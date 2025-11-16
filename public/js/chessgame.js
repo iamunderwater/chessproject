@@ -73,227 +73,256 @@ function clearSelectionUI() {
   clearHighlights();
 }
 
+// ---------------- EVENT ATTACHER ----------------
+function attachPieceEvents(piece, r, c) {
+  // remove previous handlers to avoid duplicates
+  piece.replaceWith(piece.cloneNode(true));
+  const newPiece = piece.parentNode
+    ? piece.parentNode.querySelector(".piece:last-child") || piece
+    : piece;
+  // In many cases above will return piece. To be safe, we re-select newly created element:
+  const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
+  const finalPiece = cell ? cell.querySelector(".piece") : newPiece;
+  if (!finalPiece) return;
+
+  // mark draggable depending on role
+  finalPiece.draggable = role && chess.board()[r] && chess.board()[r][c] ? (role === chess.board()[r][c].color) : false;
+
+  // ---- DESKTOP DRAG START ----
+  finalPiece.addEventListener("dragstart", e => {
+    if (!finalPiece.draggable) return;
+    dragged = finalPiece;
+    source = { row: r, col: c };
+    e.dataTransfer.setData("text/plain", "");
+
+    // custom drag image
+    const img = finalPiece.querySelector("img");
+    if (img) {
+      const dragImg = img.cloneNode(true);
+      dragImg.style.position = "absolute";
+      dragImg.style.top = "-9999px";
+      document.body.appendChild(dragImg);
+      const w = dragImg.width || 70;
+      const h = dragImg.height || 70;
+      e.dataTransfer.setDragImage(dragImg, w / 2, h / 2);
+      setTimeout(() => {
+        const clone = document.querySelector("body > img[style*='-9999px']");
+        if (clone) clone.remove();
+      }, 1000);
+    }
+
+    highlightMoves(r, c);
+    finalPiece.classList.add("dragging");
+  });
+
+  finalPiece.addEventListener("dragend", () => {
+    dragged = null;
+    source = null;
+    finalPiece.classList.remove("dragging");
+    clearHighlights();
+  });
+
+  // ---- TOUCH (mobile) ----
+  finalPiece.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const sq = chess.board()[r] && chess.board()[r][c];
+    if (!sq || role !== sq.color) return;
+
+    touchDrag.active = true;
+    touchDrag.startSquare = { row: r, col: c };
+    touchDrag.lastTargetSquare = null;
+
+    const img = finalPiece.querySelector("img");
+    const floating = img.cloneNode(true);
+    floating.style.position = "fixed";
+    floating.style.left = `${e.touches[0].clientX}px`;
+    floating.style.top = `${e.touches[0].clientY}px`;
+    floating.style.transform = "translate(-50%, -50%)";
+    floating.style.zIndex = 9999;
+    floating.style.pointerEvents = "none";
+    floating.classList.add("touch-floating");
+    document.body.appendChild(floating);
+    touchDrag.floating = floating;
+
+    highlightMoves(r, c);
+
+    clearSelectionUI();
+    selectedSource = { row: r, col: c };
+    selectedElement = finalPiece;
+    selectedElement.classList.add("selected");
+  }, { passive: false });
+
+  finalPiece.addEventListener("touchmove", e => {
+    if (!touchDrag.active || !touchDrag.floating) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    touchDrag.floating.style.left = `${t.clientX}px`;
+    touchDrag.floating.style.top = `${t.clientY}px`;
+
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    if (!el) return;
+    const sqEl = el.closest(".square");
+    if (!sqEl) {
+      touchDrag.lastTargetSquare = null;
+      return;
+    }
+    touchDrag.lastTargetSquare = {
+      row: parseInt(sqEl.dataset.row),
+      col: parseInt(sqEl.dataset.col)
+    };
+  }, { passive: false });
+
+  finalPiece.addEventListener("touchend", e => {
+    if (!touchDrag.active) return;
+    e.preventDefault();
+
+    let target = touchDrag.lastTargetSquare;
+    if (!target) {
+      const t = e.changedTouches[0];
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const sqEl = el && el.closest(".square");
+      if (sqEl) {
+        target = {
+          row: parseInt(sqEl.dataset.row),
+          col: parseInt(sqEl.dataset.col)
+        };
+      }
+    }
+
+    if (touchDrag.floating) touchDrag.floating.remove();
+
+    if (target) {
+      handleMove(touchDrag.startSquare, target);
+    }
+
+    touchDrag = {
+      active: false,
+      startSquare: null,
+      floating: null,
+      lastTargetSquare: null
+    };
+
+    clearHighlights();
+  }, { passive: false });
+
+  // ---- CLICK SELECT ----
+  finalPiece.addEventListener("click", () => {
+    const sq = chess.board()[r] && chess.board()[r][c];
+    if (!sq || role !== sq.color) return;
+
+    if (selectedSource && selectedSource.row === r && selectedSource.col === c) {
+      clearSelectionUI();
+    } else {
+      clearSelectionUI();
+      selectedSource = { row: r, col: c };
+      selectedElement = finalPiece;
+      finalPiece.classList.add("selected");
+      highlightMoves(r, c);
+    }
+  });
+}
+
 // ---------------- BOARD RENDER ----------------
 function renderBoard() {
   if (!boardEl) return;
   const board = chess.board();
+
+  // FIRST TIME: build board
   if (!boardEl.dataset.initialized) {
     boardEl.innerHTML = "";
     boardEl.dataset.initialized = "1";
-} else {
-    return; // stop full re-render
-}
 
-  board.forEach((row, r) => {
-    row.forEach((sq, c) => {
-      const cell = document.createElement("div");
-      cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
-      cell.dataset.row = r;
-      cell.dataset.col = c;
+    board.forEach((row, r) => {
+      row.forEach((sq, c) => {
+        const cell = document.createElement("div");
+        cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        cell.style.position = "relative"; // keep cell relative so pieces (if any) can be inside
 
-      // Tap-to-tap move
-      cell.addEventListener("click", () => {
-        if (selectedSource) {
-          handleMove(selectedSource, { row: r, col: c });
-          clearSelectionUI();
-        }
-      });
+        // Tap-to-tap movement
+        cell.addEventListener("click", () => {
+          if (selectedSource) {
+            handleMove(selectedSource, { row: r, col: c });
+            clearSelectionUI();
+          }
+        });
 
-      cell.addEventListener(
-        "touchend",
-        e => {
+        cell.addEventListener("touchend", e => {
           if (selectedSource) {
             e.preventDefault();
             handleMove(selectedSource, { row: r, col: c });
             clearSelectionUI();
           }
-        },
-        { passive: false }
-      );
+        }, { passive: false });
 
-      if (sq) {
-        const piece = document.createElement("div");
-        piece.classList.add("piece", sq.color === "w" ? "white" : "black");
+        // Add piece if exists
+        if (sq) {
+          const piece = document.createElement("div");
+          piece.classList.add("piece", sq.color === "w" ? "white" : "black");
 
-        const img = document.createElement("img");
-        img.src = pieceImage(sq);
-        img.classList.add("piece-img");
-        piece.appendChild(img);
+          const img = document.createElement("img");
+          img.src = pieceImage(sq);
+          img.classList.add("piece-img");
+          piece.appendChild(img);
 
-        piece.draggable = role === sq.color;
+          cell.appendChild(piece);
 
-        // -------- Desktop dragstart --------
-        piece.addEventListener("dragstart", e => {
-          if (!piece.draggable) return;
-          dragged = piece;
-          source = { row: r, col: c };
-          e.dataTransfer.setData("text/plain", "");
+          // Attach events:
+          attachPieceEvents(piece, r, c);
+        }
 
-          // custom drag image
-          const dragImg = img.cloneNode(true);
-          dragImg.style.position = "absolute";
-          dragImg.style.top = "-9999px";
-          document.body.appendChild(dragImg);
-          // safe guard for drag image sizes
-          const w = dragImg.width || 70;
-          const h = dragImg.height || 70;
-          e.dataTransfer.setDragImage(dragImg, w / 2, h / 2);
-
-          highlightMoves(r, c);
-          piece.classList.add("dragging");
-        });
-
-        // -------- Desktop dragend --------
-        piece.addEventListener("dragend", () => {
-          dragged = null;
-          source = null;
-          piece.classList.remove("dragging");
-
-          const clone = document.querySelector("body > img[style*='-9999px']");
-          if (clone) clone.remove();
-
+        // Drag target behavior
+        cell.addEventListener("dragover", e => e.preventDefault());
+        cell.addEventListener("drop", e => {
+          e.preventDefault();
+          if (dragged && source) handleMove(source, { row: r, col: c });
           clearHighlights();
         });
 
-        // -------- Mobile touchstart --------
-        piece.addEventListener(
-          "touchstart",
-          e => {
-            e.preventDefault();
-            if (role !== sq.color) {
-              clearSelectionUI();
-              return;
-            }
-
-            // start mobile drag
-            touchDrag.active = true;
-            touchDrag.startSquare = { row: r, col: c };
-            touchDrag.lastTargetSquare = null;
-
-            const floating = img.cloneNode(true);
-            floating.style.position = "fixed";
-            floating.style.left = `${e.touches[0].clientX}px`;
-            floating.style.top = `${e.touches[0].clientY}px`;
-            floating.style.transform = "translate(-50%, -50%)";
-            floating.style.zIndex = 9999;
-            floating.style.pointerEvents = "none";
-            document.body.appendChild(floating);
-            touchDrag.floating = floating;
-
-            highlightMoves(r, c);
-
-            clearSelectionUI();
-            selectedSource = { row: r, col: c };
-            selectedElement = piece;
-            selectedElement.classList.add("selected");
-          },
-          { passive: false }
-        );
-
-        // -------- Mobile touchmove --------
-        piece.addEventListener(
-          "touchmove",
-          e => {
-            if (!touchDrag.active || !touchDrag.floating) return;
-            e.preventDefault();
-            const t = e.touches[0];
-            touchDrag.floating.style.left = `${t.clientX}px`;
-            touchDrag.floating.style.top = `${t.clientY}px`;
-
-            const el = document.elementFromPoint(t.clientX, t.clientY);
-            if (!el) return;
-            const sqEl = el.closest(".square");
-            if (!sqEl) {
-              touchDrag.lastTargetSquare = null;
-              return;
-            }
-
-            touchDrag.lastTargetSquare = {
-              row: parseInt(sqEl.dataset.row),
-              col: parseInt(sqEl.dataset.col)
-            };
-          },
-          { passive: false }
-        );
-
-        // -------- Mobile touchend --------
-        piece.addEventListener(
-          "touchend",
-          e => {
-            if (!touchDrag.active) return;
-
-            e.preventDefault();
-
-            let target = touchDrag.lastTargetSquare;
-
-            if (!target) {
-              const t = e.changedTouches[0];
-              const el = document.elementFromPoint(t.clientX, t.clientY);
-              const sqEl = el && el.closest(".square");
-              if (sqEl) {
-                target = {
-                  row: parseInt(sqEl.dataset.row),
-                  col: parseInt(sqEl.dataset.col)
-                };
-              }
-            }
-
-            if (touchDrag.floating) touchDrag.floating.remove();
-
-            if (target) {
-              handleMove(touchDrag.startSquare, target);
-            }
-
-            touchDrag = {
-              active: false,
-              startSquare: null,
-              floating: null,
-              lastTargetSquare: null
-            };
-
-            clearHighlights();
-          },
-          { passive: false }
-        );
-
-        // -------- Click selection --------
-        piece.addEventListener("click", () => {
-          if (role !== sq.color) return;
-
-          if (selectedSource && selectedSource.row === r && selectedSource.col === c) {
-            clearSelectionUI();
-          } else {
-            clearSelectionUI();
-            selectedSource = { row: r, col: c };
-            selectedElement = piece;
-            selectedElement.classList.add("selected");
-            highlightMoves(r, c);
-          }
-        });
-
-        cell.appendChild(piece);
-      }
-
-      // Desktop drop
-      cell.addEventListener("dragover", e => e.preventDefault());
-      cell.addEventListener("drop", e => {
-        e.preventDefault();
-        if (dragged && source) {
-          handleMove(source, { row: r, col: c });
-        }
-        clearHighlights();
+        boardEl.appendChild(cell);
       });
-
-      boardEl.appendChild(cell);
     });
-  });
 
-  if (role === "b") boardEl.classList.add("flipped");
-  else boardEl.classList.remove("flipped");
+    if (role === "b") boardEl.classList.add("flipped");
+    else boardEl.classList.remove("flipped");
 
-  clearHighlights();
+    return;
+  }
+
+  // AFTER INITIAL RENDER: update piece DOMs to match engine state
+  updateBoardPieces(board);
 }
 
+function updateBoardPieces(board) {
+  // Remove all current piece elements
+  document.querySelectorAll(".piece").forEach(p => p.remove());
+
+  // Recreate piece DOM in correct squares
+  board.forEach((row, r) => {
+    row.forEach((sq, c) => {
+      if (!sq) return;
+
+      const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
+      if (!cell) return;
+
+      const piece = document.createElement("div");
+      piece.classList.add("piece", sq.color === "w" ? "white" : "black");
+
+      const img = document.createElement("img");
+      img.src = pieceImage(sq);
+      img.classList.add("piece-img");
+      piece.appendChild(img);
+
+      cell.appendChild(piece);
+
+      // Attach events
+      attachPieceEvents(piece, r, c);
+    });
+  });
+}
+
+// ---------------- MOVE ANIMATION ----------------
 function movePieceDOM(from, to, mvResult) {
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
   const toSq   = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
@@ -303,61 +332,116 @@ function movePieceDOM(from, to, mvResult) {
   const piece = fromSq.querySelector(".piece");
   if (!piece) return;
 
-  // ----- REMOVE CAPTURED PIECE -----
-  if (mvResult.captured) {
-    const capturedSq = toSq.querySelector(".piece");
-    if (capturedSq) capturedSq.remove();
+  // Board rect (for absolute coords)
+  const boardRect = boardEl.getBoundingClientRect();
 
-    // En-passant special capture
-    if (mvResult.flags.includes("e")) {
+  // Create a floating clone for animation
+  const img = piece.querySelector("img");
+  const floating = piece.cloneNode(true);
+  floating.style.position = "absolute";
+  floating.style.width = `${img ? img.getBoundingClientRect().width : 70}px`;
+  floating.style.height = `${img ? img.getBoundingClientRect().height : 70}px`;
+  floating.style.left = `${piece.getBoundingClientRect().left - boardRect.left}px`;
+  floating.style.top = `${piece.getBoundingClientRect().top - boardRect.top}px`;
+  floating.style.margin = "0";
+  floating.style.zIndex = 9999;
+  floating.style.pointerEvents = "none";
+  floating.style.transition = "all 160ms ease";
+  boardEl.appendChild(floating);
+
+  // Remove original immediately so target square is free (prevents blocking)
+  piece.remove();
+
+  // Handle captures
+  if (mvResult && mvResult.captured) {
+    // regular capture: remove piece in target square
+    const cap = toSq.querySelector(".piece");
+    if (cap) cap.remove();
+
+    // en-passant capture (flag 'e'): captured pawn is behind 'to' square
+    if (mvResult.flags && mvResult.flags.includes("e")) {
       const capRow = from.r;
       const capCol = to.c;
       const epSq = document.querySelector(`.square[data-row='${capRow}'][data-col='${capCol}']`);
-      const epPiece = epSq.querySelector(".piece");
+      const epPiece = epSq && epSq.querySelector(".piece");
       if (epPiece) epPiece.remove();
     }
   }
 
-  // ----- CASTLING (move rook also) -----
-  if (mvResult.flags.includes("k")) {
-    // king-side
-    const rookFrom = { r: from.r, c: 7 };
-    const rookTo   = { r: from.r, c: 5 };
+  // Compute target coordinates for floating (relative to board)
+  const targetRect = toSq.getBoundingClientRect();
+  const targetLeft = targetRect.left - boardRect.left;
+  const targetTop = targetRect.top - boardRect.top;
 
-    const rookSq = document.querySelector(`.square[data-row='${rookFrom.r}'][data-col='${rookFrom.c}']`);
-    const rook = rookSq.querySelector(".piece");
-    const targetSq = document.querySelector(`.square[data-row='${rookTo.r}'][data-col='${rookTo.c}']`);
-
-    if (rook && targetSq) targetSq.appendChild(rook);
+  // Special: castling - move rook DOM too (we don't animate rook here; we'll move it after)
+  let rookMove = null;
+  if (mvResult && mvResult.flags) {
+    if (mvResult.flags.includes("k")) {
+      // king-side: rook from col7 to col5
+      rookMove = {
+        from: { r: from.r, c: 7 },
+        to:   { r: from.r, c: 5 }
+      };
+    } else if (mvResult.flags.includes("q")) {
+      // queen-side: rook from col0 to col3
+      rookMove = {
+        from: { r: from.r, c: 0 },
+        to:   { r: from.r, c: 3 }
+      };
+    }
   }
 
-  if (mvResult.flags.includes("q")) {
-    // queen-side castling
-    const rookFrom = { r: from.r, c: 0 };
-    const rookTo   = { r: from.r, c: 3 };
+  // Start animation (move floating to target)
+  requestAnimationFrame(() => {
+    floating.style.left = `${targetLeft}px`;
+    floating.style.top = `${targetTop}px`;
+    floating.style.transform = ""; // ensure no residual transform
+  });
 
-    const rookSq = document.querySelector(`.square[data-row='${rookFrom.r}'][data-col='${rookFrom.c}']`);
-    const rook = rookSq.querySelector(".piece");
-    const targetSq = document.querySelector(`.square[data-row='${rookTo.r}'][data-col='${rookTo.c}']`);
-
-    if (rook && targetSq) targetSq.appendChild(rook);
-  }
-
-  // ----- ANIMATE KING / PIECE -----
-  const rectFrom = fromSq.getBoundingClientRect();
-  const rectTo = toSq.getBoundingClientRect();
-
-  const dx = rectTo.left - rectFrom.left;
-  const dy = rectTo.top - rectFrom.top;
-
-  piece.style.transform = `translate(${dx}px, ${dy}px)`;
-
+  // After animation, append piece (floating) into toSq and reattach events
   setTimeout(() => {
-    piece.style.transform = "";
-    toSq.appendChild(piece);
-  }, 150);
-}
+    // If there was a promotion (mvResult.promotion) replace the image
+    if (mvResult && mvResult.promotion) {
+      const imgEl = floating.querySelector("img");
+      if (imgEl) {
+        const color = mvResult.color || (mvResult.san && mvResult.san[0] === mvResult.san[0].toUpperCase() ? 'w' : 'b');
+        imgEl.src = `/pieces/${(mvResult.color || 'w')}${mvResult.promotion.toUpperCase()}.svg`;
+      }
+    }
 
+    // reset floating styles and append to target cell
+    floating.style.position = "";
+    floating.style.left = "";
+    floating.style.top = "";
+    floating.style.width = "";
+    floating.style.height = "";
+    floating.style.zIndex = "";
+    floating.style.pointerEvents = "";
+    floating.style.transition = "";
+    toSq.appendChild(floating);
+
+    // reattach events on moved piece
+    attachPieceEvents(floating, to.r, to.c);
+
+    // handle rook move for castling (move rook DOM to correct square)
+    if (rookMove) {
+      const rookFromSq = document.querySelector(`.square[data-row='${rookMove.from.r}'][data-col='${rookMove.from.c}']`);
+      const rookToSq = document.querySelector(`.square[data-row='${rookMove.to.r}'][data-col='${rookMove.to.c}']`);
+      if (rookFromSq && rookToSq) {
+        const rookPiece = rookFromSq.querySelector(".piece");
+        if (rookPiece) {
+          // move rook instantly (we could animate similarly if wanted)
+          rookToSq.appendChild(rookPiece);
+          attachPieceEvents(rookPiece, rookMove.to.r, rookMove.to.c);
+        }
+      }
+    }
+
+    // finally, make sure board DOM lines up with engine (in rare sync cases)
+    // we won't call full render here to avoid jump; but updateBoardPieces when a boardstate arrives
+
+  }, 180);
+}
 
 // ---------------- HANDLE MOVES ----------------
 function handleMove(s, t) {
@@ -466,8 +550,10 @@ socket.on("boardstate", fen => {
 
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
+  // apply move to engine first (get flags, captured, promotion etc)
+  const mvResult = chess.move(mv);
 
-  // compute from-to squares
+  // compute from-to squares for animation
   const from = {
     r: 8 - parseInt(mv.from[1]),
     c: mv.from.charCodeAt(0) - 97
@@ -478,10 +564,7 @@ socket.on("move", mv => {
     c: mv.to.charCodeAt(0) - 97
   };
 
-  // update engine first (we need flags: capture, castle etc)
-  const mvResult = chess.move(mv);
-
-  // play animation with full move info
+  // animate DOM change
   movePieceDOM(from, to, mvResult);
 
   clearSelectionUI();
@@ -499,7 +582,6 @@ socket.on("move", mv => {
 socket.on("timers", t => updateTimers(t));
 
 // -------- DRAW OFFERED (opponent) --------
-// server emits "drawOffered" when opponent offered a draw
 socket.on("drawOffered", () => {
   if (window.oppText && window.oppBox) {
     window.oppText.innerText = "Opponent offers draw";
@@ -519,7 +601,6 @@ socket.on("drawOffered", () => {
       };
     }
   } else {
-    // fallback: show a simple popup if oppBox missing
     if (popupText && popup) {
       popupText.innerText = "Opponent offers a draw";
       popup.classList.add("show");
@@ -557,38 +638,26 @@ socket.on("gameover", winner => {
   // ========== RESIGNATION ==========
   let w = (winner || "").toString().trim().toLowerCase();
 
-if (w.includes("resign")) {
-
+  if (w.includes("resign")) {
     let whiteResigned = w.includes("white");
     let blackResigned = w.includes("black");
 
     if (whiteResigned) {
-        txt = role === "b"
-            ? "You resigned! 💀"
-            : "Opponent resigned — you win! 😎";
+      txt = role === "b" ? "You resigned! 💀" : "Opponent resigned — you win! 😎";
+    } else if (blackResigned) {
+      txt = role === "w" ? "You resigned! 💀" : "Opponent resigned — you win! 😎";
+    } else {
+      txt = "Opponent resigned — you win! 😎";
     }
-    else if (blackResigned) {
-        txt = role === "w"
-            ? "You resigned! 💀"
-            : "Opponent resigned — you win! 😎";
-    }
-    else {
-        // fallback (in case the server sends weird strings)
-        txt = "Opponent resigned — you win! 😎";
-    }
-}
-
+  }
   // ========== TIMEOUT ==========
   else if (typeof winner === "string" && winner.includes("timeout")) {
     if (role === "w" && winner.startsWith("White")) txt = "EZ Timeout Win 😎";
-    else if (role === "b" && winner.startsWith("Black"))
-      txt = "Time’s up, victory is mine 🕒🔥";
+    else if (role === "b" && winner.startsWith("Black")) txt = "Time’s up, victory is mine 🕒🔥";
     else txt = "Skill issue? 🫵😂";
   }
-
   // ========== DRAW ==========
   else if (winner === "Draw") txt = "Both are noobs";
-
   // ========== CHECKMATE ==========
   else if (winner === "White") {
     txt = role === "w" ? "You win 😎" : "You got outplayed bro 💀";
@@ -600,15 +669,10 @@ if (w.includes("resign")) {
     popupText.innerText = txt;
     popup.classList.add("show");
   } else {
-    // fallback alert (shouldn't normally be used)
-    try {
-      alert(txt);
-    } catch (e) {}
+    try { alert(txt); } catch (e) {}
   }
 
-  if (endSound) {
-    endSound.play();
-  }
+  if (endSound) endSound.play();
 });
 
 // -------- RESET BUTTON --------

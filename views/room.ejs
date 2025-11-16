@@ -20,50 +20,38 @@ body {
 
 .hidden { display:none; }
 
-/* ==========================================================
-   NEW SMOOTH CHESS.COM STYLE BOARD LAYOUT
-   ========================================================== */
+/* ========== YOUR FULL EXISTING STYLES ========== */
 .chessboard {
-  position: relative;
-  width: 640px;
-  height: 640px;
+  display:grid;
+  grid-template-columns:repeat(8,80px);
+  grid-template-rows:repeat(8,80px);
+  width:640px;
+  height:640px;
   box-shadow:0 0 20px #333;
   border-radius:6px;
-  overflow: hidden;
+  transition:transform .4s;
 }
 
-/* Each square absolutely positioned */
 .square {
-  position: absolute;
-  width: 80px;
-  height: 80px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
 }
 
 .light { background:#f0d9b5; }
 .dark  { background:#b58863; }
 
-/* --- FIXED VERSION (drag works now) --- */
-.piece {
-  position: absolute;
-  width: 80px;
-  height: 80px;
-  transition: transform 150ms ease-in-out;
-  will-change: transform;
-  z-index: 5;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-/* image shouldn't block pointer events */
 .piece-img {
-  width: 80px;
-  height: 80px;
-  pointer-events: none;
-  user-select: none;
+  width:70px;
+  height:70px;
+  user-select:none;
+  pointer-events:none;
 }
 
-/* Timer UI */
+.flipped { transform:rotate(180deg); }
+.flipped .square { transform:rotate(180deg); }
+
 .timer-box {
   font-size:22px;
   font-weight:bold;
@@ -73,7 +61,6 @@ body {
   box-shadow:0 0 10px #00ffff70;
 }
 
-/* Popup */
 #popup {
   position:fixed;
   inset:0;
@@ -92,7 +79,6 @@ body {
   text-align:center;
 }
 
-/* Highlights */
 .piece.selected {
   outline: 3px solid rgba(0,200,255,0.9);
   outline-offset: 4px;
@@ -107,7 +93,6 @@ body {
   border-radius:50%;
   position:absolute;
 }
-
 .square.capture::after {
   content:"";
   width:36px;

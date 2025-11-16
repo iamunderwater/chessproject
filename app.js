@@ -13,11 +13,28 @@ app.set("view engine", "ejs");
 app.use(express.static(path.join(__dirname, "public")));
 
 // -------------------- In-memory data --------------------
+/**
+ rooms structure:
+ rooms[roomId] = {
+   chess: Chess instance,
+   white: socketId | null,
+   black: socketId | null,
+   watchers: Set(socketId),
+   timers: { w: seconds, b: seconds },
+   timerInterval: IntervalId | null,
+   isTimerRunning: boolean
+ }
+*/
 const rooms = Object.create(null);
-let quickWaiting = null;
+
+// Quickplay queue (single waiting socket)
+let quickWaiting = null; // { socketId, createdAt } or null
 
 // -------------------- Helpers --------------------
-const makeRoomId = () => crypto.randomBytes(4).toString("hex").slice(0, 6).toUpperCase();
+const makeRoomId = () => {
+  // 6-char alphanumeric
+  return crypto.randomBytes(4).toString("hex").slice(0, 6).toUpperCase();
+};
 
 function createRoom(roomId) {
   const room = {
@@ -25,7 +42,7 @@ function createRoom(roomId) {
     white: null,
     black: null,
     watchers: new Set(),
-    timers: { w: 300, b: 300 },
+    timers: { w: 300, b: 300 }, // 5 minutes default
     timerInterval: null,
     isTimerRunning: false
   };
@@ -33,26 +50,29 @@ function createRoom(roomId) {
   return room;
 }
 
-function isSocketConnected(id) {
-  if (!id) return false;
-  return !!io.sockets.sockets.get(id);
-}
-
 function startRoomTimer(roomId) {
   const room = rooms[roomId];
   if (!room || room.isTimerRunning) return;
   room.isTimerRunning = true;
-  if (room.timerInterval) clearInterval(room.timerInterval);
+
+  if (room.timerInterval) {
+    clearInterval(room.timerInterval);
+  }
 
   room.timerInterval = setInterval(() => {
-    const turn = room.chess.turn();
+    const turn = room.chess.turn(); // 'w' or 'b'
     if (!turn) return;
+
     if (room.timers[turn] > 0) room.timers[turn]--;
+
+    // broadcast timers to room
     io.to(roomId).emit("timers", room.timers);
+
     if (room.timers[turn] <= 0) {
       clearInterval(room.timerInterval);
       room.timerInterval = null;
       room.isTimerRunning = false;
+      // opponent wins on timeout
       const winner = turn === "w" ? "Black" : "White";
       io.to(roomId).emit("gameover", `${winner} (timeout)`);
     }
@@ -80,17 +100,27 @@ function cleanRoomIfEmpty(roomId) {
 }
 
 // -------------------- Routes --------------------
-app.get("/", (req, res) => res.render("index"));
-app.get("/quickplay", (req, res) => res.render("quickplay"));
+app.get("/", (req, res) => {
+  res.render("index");
+});
+
+// Quickplay page - minimal page that auto-joins queue on client connect
+app.get("/quickplay", (req, res) => {
+  res.render("quickplay"); // we'll send a small quickplay view (see note)
+});
+
+// Create a friend room and redirect to it
 app.get("/create-room", (req, res) => {
   const id = makeRoomId();
   createRoom(id);
   res.redirect(`/room/${id}`);
 });
+
+// Room page (game UI)
 app.get("/room/:id", (req, res) => {
   const roomId = req.params.id.toUpperCase();
-  // IMPORTANT: don't auto-create rooms here — quickplay/create-room must create them.
-  // If it does not exist, we still render the page so client can call joinRoom and get a friendly message.
+  // create if not exists
+  if (!rooms[roomId]) createRoom(roomId);
   res.render("room", { roomId });
 });
 
@@ -98,262 +128,198 @@ app.get("/room/:id", (req, res) => {
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 
+  // Helper: join socket.io room for broadcasts
   function joinSocketRoom(roomId) {
-    try { socket.join(roomId); } catch (e) {}
+    try {
+      socket.join(roomId);
+    } catch (e) {}
   }
+
   function leaveSocketRoom(roomId) {
-    try { socket.leave(roomId); } catch (e) {}
+    try {
+      socket.leave(roomId);
+    } catch (e) {}
   }
 
-  // ---- JOIN ROOM (idempotent, defensive)
-  socket.on("joinRoom", (data) => {
-    let roomId = "";
-    let forcedRole = null;
+  // ---------------- Join an existing room (from room page)
+  // client emits: socket.emit('joinRoom', roomId)
+socket.on("joinRoom", data => {
+  let roomId, forcedRole;
 
-    if (typeof data === "string") {
-      roomId = data.toUpperCase();
-    } else if (data && typeof data === "object") {
-      roomId = String(data.roomId || "").toUpperCase();
-      forcedRole = data.role; // may be 'w' or 'b' or null
-    } else {
-      socket.emit("info", { text: "Invalid joinRoom payload" });
-      return;
+  // support both: joinRoom("ABCDE") and joinRoom({ roomId: "ABCDE", role: "w" })
+  if (typeof data === "string") {
+    roomId = data.toUpperCase();
+  } else {
+    roomId = data.roomId.toUpperCase();
+    forcedRole = data.role; // "w" or "b" or null
+  }
+
+  if (!rooms[roomId]) createRoom(roomId);
+  const room = rooms[roomId];
+
+  joinSocketRoom(roomId);
+  socket.data.currentRoom = roomId;
+
+  // =====================================
+  //  QUICKPLAY FIX: respect forced roles
+  // =====================================
+  if (forcedRole === "w") {
+    room.white = socket.id;
+    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+
+    if (room.black) {
+      startRoomTimer(roomId);
+      io.to(roomId).emit("boardstate", room.chess.fen());
+      io.to(roomId).emit("timers", room.timers);
     }
+    return;
+  }
 
-    if (!roomId) {
-      socket.emit("info", { text: "Missing room id" });
-      return;
+  if (forcedRole === "b") {
+    room.black = socket.id;
+    socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+
+    if (room.white) {
+      startRoomTimer(roomId);
+      io.to(roomId).emit("boardstate", room.chess.fen());
+      io.to(roomId).emit("timers", room.timers);
     }
+    return;
+  }
 
-    // CRITICAL: do NOT create room here. If the room doesn't exist, refuse join.
-    if (!rooms[roomId]) {
-      console.log(`joinRoom: room ${roomId} does NOT exist; refusing join for socket=${socket.id}`);
-      socket.emit("info", { text: "Room does not exist or expired." });
-      return;
-    }
-    const room = rooms[roomId];
-
-    // join socket.io room & record currentRoom
-    joinSocketRoom(roomId);
-    socket.data.currentRoom = roomId;
-
-    // helper to check connection & clear dead seats
-    const ensureSeatState = () => {
-      if (room.white && !isSocketConnected(room.white)) {
-        console.log(`joinRoom: clearing stale white ${room.white} in ${roomId}`);
-        room.white = null;
-      }
-      if (room.black && !isSocketConnected(room.black)) {
-        console.log(`joinRoom: clearing stale black ${room.black} in ${roomId}`);
-        room.black = null;
-      }
-    };
-
-    ensureSeatState();
-
-    console.log(`joinRoom: socket=${socket.id} forcedRole=${forcedRole} room=${roomId} white=${room.white} black=${room.black}`);
-
-    // If this socket already owns a seat, re-init (idempotent)
-    if (room.white === socket.id) {
-      socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-      return;
-    }
-    if (room.black === socket.id) {
-      socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-      return;
-    }
-
-    // Helper to finalize after assignment: start timers if both present & connected
-    const finalizeIfReady = () => {
-      if (room.white && room.black && isSocketConnected(room.white) && isSocketConnected(room.black)) {
-        startRoomTimer(roomId);
-        io.to(roomId).emit("boardstate", room.chess.fen());
-        io.to(roomId).emit("timers", room.timers);
-      } else {
-        // send board/timers to the joining socket so they see current state
-        socket.emit("boardstate", room.chess.fen());
-        socket.emit("timers", room.timers);
-      }
-    };
-
-    // -------------------- Forced-role flow (quickplay) --------------------
-    if (forcedRole === "w" || forcedRole === "b") {
-      const desiredSeat = forcedRole === "w" ? "white" : "black";
-      const otherSeat = desiredSeat === "white" ? "black" : "white";
-
-      // If other seat is same socket (just in case), treat as re-init
-      if (room[otherSeat] === socket.id) {
-        // This is an odd case — don't overwrite; make this socket a watcher
-        console.log(`joinRoom: socket ${socket.id} already occupying other seat ${otherSeat} in ${roomId}; adding as watcher`);
-        room.watchers.add(socket.id);
-        socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
-        socket.emit("boardstate", room.chess.fen());
-        socket.emit("timers", room.timers);
-        return;
-      }
-
-      // If desired seat is free (or held by disconnected socket) -> claim it
-      if (!room[desiredSeat] || !isSocketConnected(room[desiredSeat])) {
-        room[desiredSeat] = socket.id;
-        socket.emit("init", { role: forcedRole, fen: room.chess.fen(), timers: room.timers });
-        console.log(`Assigned ${desiredSeat} to ${socket.id} in ${roomId}`);
-
-        // If other seat exists but was stale, ensure it's null (ensureSeatState already cleared stale)
-        finalizeIfReady();
-        return;
-      }
-
-      // Desired seat occupied by connected socket -> cannot claim it, become watcher
-      console.log(`joinRoom: desired seat ${desiredSeat} is occupied by connected socket ${room[desiredSeat]}; adding ${socket.id} as watcher`);
-      room.watchers.add(socket.id);
-      socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
-      socket.emit("boardstate", room.chess.fen());
-      socket.emit("timers", room.timers);
-      return;
-    }
-
-    // -------------------- Friend-room (no forced role) --------------------
-    // Try to fill white first if free; otherwise fill black if free.
-    if (!room.white) {
-      room.white = socket.id;
-      socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-      console.log(`Assigned white to ${socket.id} in ${roomId} (friend join)`);
-
-      if (room.black && isSocketConnected(room.black)) {
-        // both present -> start
-        finalizeIfReady();
-      } else {
-        // waiting for second player
-        socket.emit("waiting", {
-          text: "Waiting for your friend to join...",
-          link: `${getBaseUrl(socket.request)}/room/${roomId}`
-        });
-      }
-      return;
-    }
+  // =====================================
+  //  FRIEND ROOM LOGIC (normal join)
+  // =====================================
+  if (room.white === socket.id) {
+    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+  }
+  else if (room.black === socket.id) {
+    socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+  }
+  else if (!room.white) {
+    room.white = socket.id;
+    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
 
     if (!room.black) {
-      // If white exists but is disconnected (should have been cleared earlier), claim white instead
-      if (!isSocketConnected(room.white)) {
-        room.white = socket.id;
-        socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-        console.log(`Reclaimed white for ${socket.id} in ${roomId} (friend join)`);
-        finalizeIfReady();
-        return;
-      }
-
-      // Normal fill black
-      room.black = socket.id;
-      io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-      io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-      console.log(`Assigned black to ${socket.id} in ${roomId} (friend join)`);
-
-      finalizeIfReady();
-      return;
+      socket.emit("waiting", {
+        text: "Waiting for your friend to join...",
+        link: `${getBaseUrl(socket.request)}/room/${roomId}`
+      });
     }
+  }
+  else if (!room.black) {
+    room.black = socket.id;
 
-    // -------------------- Both seats filled -> watcher --------------------
-    console.log(`joinRoom: both seats taken in ${roomId}; adding ${socket.id} as watcher`);
+    io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+    io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+
+    startRoomTimer(roomId);
+    io.to(roomId).emit("boardstate", room.chess.fen());
+    io.to(roomId).emit("timers", room.timers);
+  }
+  else {
     room.watchers.add(socket.id);
     socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
     socket.emit("boardstate", room.chess.fen());
     socket.emit("timers", room.timers);
-  });
+  }
 
-  // ---- QUICKPLAY queue
+});
+  // ---------------- Quick Play (enter queue)
+  // client emits: socket.emit('enterQuickplay')
   socket.on("enterQuickplay", () => {
-    // If this socket is already the waiting one
+    // if already in queue, ignore
     if (quickWaiting && quickWaiting.socketId === socket.id) {
       socket.emit("info", { text: "Already searching..." });
       return;
     }
 
-    // No one waiting -> this user becomes waiting
+    // If no one waiting -> become the waiting player
     if (!quickWaiting) {
       quickWaiting = { socketId: socket.id, createdAt: Date.now() };
-      socket.data.isInQuickplay = true;
       socket.emit("looking", { text: "Looking for available players..." });
       console.log("Quickplay: waiting:", socket.id);
+
+      // cleanup on disconnect will handle clearing quickWaiting
+      socket.data.isInQuickplay = true;
       return;
     }
 
-    // Someone IS waiting -> match them
-    const waitingId = quickWaiting.socketId;
-    const waitingSocket = io.sockets.sockets.get(waitingId);
+    // If we reach here, there's someone waiting -> create room and match
+    // Validate waiting is still connected
+    const waitingSocketId = quickWaiting.socketId;
+    const waitingSocket = io.sockets.sockets.get(waitingSocketId);
 
-    // If waiting socket disconnected, replace them
     if (!waitingSocket) {
+      // waiting disconnected, replace with current
       quickWaiting = { socketId: socket.id, createdAt: Date.now() };
       socket.data.isInQuickplay = true;
       socket.emit("looking", { text: "Looking for available players..." });
       return;
     }
 
-    // Create the game room
+    // Create new room and assign first waiting user as white, current as black
     const roomId = makeRoomId();
     const room = createRoom(roomId);
 
-    // Save seats on server side and make sockets join the socket.io room
-    room.white = waitingId;
+    // assign
+    room.white = waitingSocketId;
     room.black = socket.id;
 
-    // Have both sockets join the socket.io room and record currentRoom
-    try { waitingSocket.join(roomId); } catch (e) {}
-    try { socket.join(roomId); } catch (e) {}
-    waitingSocket.data.currentRoom = roomId;
-    socket.data.currentRoom = roomId;
+    // both sockets should join socket.io room
+    waitingSocket.join(roomId);
+socket.join(roomId);
 
-    // Tell both clients who they SHOULD be
-    io.to(waitingId).emit("matched", { roomId, role: "w" });
-    io.to(socket.id).emit("matched", { roomId, role: "b" });
-
-    // Send init + full board/timers for both
-    io.to(waitingId).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-    io.to(socket.id).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-
-    // Broadcast boardstate/timers to the room
-    io.to(roomId).emit("boardstate", room.chess.fen());
-    io.to(roomId).emit("timers", room.timers);
-
-    // Start timers only if both sockets are connected
-    if (isSocketConnected(room.white) && isSocketConnected(room.black)) {
-      startRoomTimer(roomId);
-    }
-
-    // Clean queue
+waitingSocket.data.currentRoom = roomId;
+socket.data.currentRoom = roomId;
+    // clear quickWaiting
     quickWaiting = null;
-    if (waitingSocket) waitingSocket.data.isInQuickplay = false;
+    waitingSocket.data.isInQuickplay = false;
     socket.data.isInQuickplay = false;
 
-    console.log(`Quickplay matched ${waitingId} <> ${socket.id} -> room ${roomId}`);
+    // Inform both clients to navigate to room URL (client will handle redirect)
+    io.to(waitingSocketId).emit("matched", { roomId, role: "w" });
+    io.to(socket.id).emit("matched", { roomId, role: "b" });
+
+    // send initial game state once they connect/join room page
+    // We'll still rely on 'joinRoom' from client once they load the /room/:id page to initialize fully.
+
+    console.log(`Quickplay matched ${waitingSocketId} <> ${socket.id} -> room ${roomId}`);
   });
 
-  // ---- MOVE handling
+  // ---------------- Move handler per room
   socket.on("move", (data) => {
+    // data should include roomId and move object
+    // But older clients might send move without roomId. We handle both.
     try {
-      const roomId = socket.data.currentRoom || (data && data.roomId);
+      const roomId = socket.data.currentRoom || data.roomId;
       if (!roomId || !rooms[roomId]) return;
 
       const room = rooms[roomId];
-      const mv = (data && data.move) || data;
+      const mv = data.move || data; // support both shapes
       if (!mv || !mv.from || !mv.to) return;
 
-      const turn = room.chess.turn();
+      // Verify that the socket is allowed to move (owner of color)
+      const turn = room.chess.turn(); // 'w' or 'b'
       if ((turn === "w" && socket.id !== room.white) || (turn === "b" && socket.id !== room.black)) {
         // not this player's turn
         return;
       }
 
+      // attempt move
       const result = room.chess.move(mv, { sloppy: true });
       if (!result) return;
 
+      // broadcast move and boardstate & timers
       io.to(roomId).emit("move", mv);
       io.to(roomId).emit("boardstate", room.chess.fen());
       io.to(roomId).emit("timers", room.timers);
 
+      // restart timers safely
       stopRoomTimer(roomId);
       startRoomTimer(roomId);
 
+      // check game over
       if (room.chess.isGameOver()) {
         stopRoomTimer(roomId);
         let winner = "Draw";
@@ -367,7 +333,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ---- Reset game
+  // client may emit move as { roomId, move: {from,to} } or simply move object
+  // To be safe, above we try both shapes.
+
+  // ---------------- Reset game in a room
   socket.on("resetgame", (roomId) => {
     roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
     if (!rooms[roomId]) return;
@@ -379,23 +348,34 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("timers", room.timers);
   });
 
-  // ---- Disconnect
+  // ---------------- disconnect handling ----------------
   socket.on("disconnect", () => {
     console.log("Socket disconnected:", socket.id);
 
-    if (quickWaiting && quickWaiting.socketId === socket.id) quickWaiting = null;
+    // If in quickplay queue, remove
+    if (quickWaiting && quickWaiting.socketId === socket.id) {
+      quickWaiting = null;
+    }
 
+    // If the socket had a currentRoom, handle leaving
     const roomId = socket.data.currentRoom;
     if (roomId && rooms[roomId]) {
       const room = rooms[roomId];
 
-      if (room.white === socket.id) room.white = null;
-      if (room.black === socket.id) room.black = null;
+      // remove from white/black/watchers
+      if (room.white === socket.id) {
+        room.white = null;
+      }
+      if (room.black === socket.id) {
+        room.black = null;
+      }
       if (room.watchers.has(socket.id)) room.watchers.delete(socket.id);
 
+      // notify remaining sockets in room
       io.to(roomId).emit("info", { text: "A player left the game." });
-
+      // If both players left, clean up room
       if (!room.white && !room.black) {
+        // close timers & delete room
         stopRoomTimer(roomId);
         delete rooms[roomId];
         console.log(`Room ${roomId} deleted because both players left.`);
@@ -403,20 +383,24 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ---- Utility
+  // ---------------- Utility to get base URL (for room link) -------------
   function getBaseUrl(req) {
+    // req may be undefined when called from socket; try to derive from socket.request
     const r = req || socket.request;
     if (!r) return `${serverAddress()}`;
     const protocol = r.headers && r.headers["x-forwarded-proto"] ? r.headers["x-forwarded-proto"] : "http";
     const host = r.headers && r.headers.host ? r.headers.host : `localhost:${process.env.PORT || 3000}`;
     return `${protocol}://${host}`;
   }
+
   function serverAddress() {
+    // fallback
     return `http://localhost:${process.env.PORT || 3000}`;
   }
 });
 
-// quickplay-raw (unchanged)
+// -------------------- Tiny view for quickplay (server must have view quickplay.ejs) --------------------
+// We'll render a tiny page that auto-joins quickplay via socket.
 app.get("/views/quickplay-raw", (req, res) => {
   res.send(`<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Quickplay</title></head><body>
   <p>Looking for available players...</p>
@@ -438,6 +422,6 @@ app.get("/views/quickplay-raw", (req, res) => {
   </body></html>`);
 });
 
-// start
+// -------------------- Start server --------------------
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));

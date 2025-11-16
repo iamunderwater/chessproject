@@ -411,7 +411,7 @@ socket.on("gameover", winner => {
   else if (winner === "White") {
     txt = role === "w" ? "You win 😎" : "You lost, noob 💀";
   } else if (winner === "Black") {
-    txt = role === "b' ? 'You win 😎' : 'You got outplayed bro 💀';
+    txt = role === "b" ? 'You win 😎' : 'You got outplayed bro 💀';
   }
 
   popupText.innerText = txt;

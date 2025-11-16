@@ -362,10 +362,20 @@ socket.on("boardstate", fen => {
 });
 
 socket.on("drawOffered", () => {
-  if (confirm("Your opponent offered a draw. Accept?")) {
-    socket.emit("acceptDraw", ROOM_ID);
-  }
+  document.getElementById("draw-offer-popup").classList.remove("hidden");
 });
+
+// Accept
+document.getElementById("draw-yes").onclick = () => {
+  socket.emit("acceptDraw", ROOM_ID);
+  document.getElementById("draw-offer-popup").classList.add("hidden");
+};
+
+// Decline
+document.getElementById("draw-no").onclick = () => {
+  socket.emit("declineDraw", ROOM_ID);
+  document.getElementById("draw-offer-popup").classList.add("hidden");
+};
 
 socket.on("gameover", msg => {
   popupText.innerText = msg;
@@ -394,14 +404,29 @@ socket.on("timers", t => updateTimers(t));
 socket.on("gameover", winner => {
   let txt = "";
 
-  if (winner.includes("timeout")) {
+  // ========== RESIGNATION ==========
+  if (winner.includes("resigned")) {
+    if (winner.startsWith("White")) {
+      txt = role === "b" ? "Opponent resigned — you win! 😎" : "You resigned! 💀";
+    } else {
+      txt = role === "w" ? "Opponent resigned — you win! 😎" : "You resigned! 💀";
+    }
+  }
+
+  // ========== TIMEOUT ==========
+  else if (winner.includes("timeout")) {
     if (role === "w" && winner.startsWith("White")) txt = "EZ Timeout Win 😎";
     else if (role === "b" && winner.startsWith("Black"))
       txt = "Time’s up, victory is mine 🕒🔥";
     else txt = "Skill issue? 🫵😂";
-  } else if (winner === "Draw") txt = "Both are noobs";
+  }
+
+  // ========== DRAW ==========
+  else if (winner === "Draw") txt = "Both are noobs";
+
+  // ========== CHECKMATE ==========
   else if (winner === "White") {
-    txt = role === "w" ? "You win 😎" : "You lost, noob 💀";
+    txt = role === "w" ? "You win 😎" : "You got outplayed bro 💀";
   } else if (winner === "Black") {
     txt = role === "b" ? "You win 😎" : "You got outplayed bro 💀";
   }
@@ -493,5 +518,7 @@ socket.on("drawOffered", () => {
 
 // -------- When opponent declines your draw --------
 socket.on("drawDeclined", () => {
-    alert("Opponent declined your draw request.");
+  const msg = document.getElementById("draw-message");
+  msg.innerText = "Opponent declined your draw request.";
+  setTimeout(() => (msg.innerText = ""), 3000);  // auto-hide in 3 seconds
 });

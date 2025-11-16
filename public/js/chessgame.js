@@ -77,7 +77,12 @@ function clearSelectionUI() {
 function renderBoard() {
   if (!boardEl) return;
   const board = chess.board();
-  boardEl.innerHTML = "";
+  if (!boardEl.dataset.initialized) {
+    boardEl.innerHTML = "";
+    boardEl.dataset.initialized = "1";
+} else {
+    return; // stop full re-render
+}
 
   board.forEach((row, r) => {
     row.forEach((sq, c) => {
@@ -289,6 +294,32 @@ function renderBoard() {
   clearHighlights();
 }
 
+function movePieceDOM(from, to) {
+  const fromSquare = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
+  const piece = fromSquare.querySelector(".piece");
+
+  if (!piece) return;
+
+  const toSquare = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
+
+  // Calculate pixel distance
+  const rectFrom = fromSquare.getBoundingClientRect();
+  const rectTo = toSquare.getBoundingClientRect();
+
+  const dx = rectTo.left - rectFrom.left;
+  const dy = rectTo.top - rectFrom.top;
+
+  // Animate
+  piece.style.transform = `translate(${dx}px, ${dy}px)`;
+
+  // After animation ends → move DOM permanently
+  setTimeout(() => {
+    piece.style.transform = "";
+    toSquare.appendChild(piece);
+  }, 150);
+}
+
+
 // ---------------- HANDLE MOVES ----------------
 function handleMove(s, t) {
   if (!s) return;
@@ -396,10 +427,29 @@ socket.on("boardstate", fen => {
 
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
+  // ---- 1. Compute from → to squares for animation ----
+  const from = {
+    r: 8 - parseInt(mv.from[1]),
+    c: mv.from.charCodeAt(0) - 97
+  };
+
+  const to = {
+    r: 8 - parseInt(mv.to[1]),
+    c: mv.to.charCodeAt(0) - 97
+  };
+
+  // ---- 2. Animate move visually ----
+  movePieceDOM(from, to);
+
+  // ---- 3. Update chess engine AFTER animation ----
   const res = chess.move(mv);
-  renderBoard();
+
+  // ---- 4. Do NOT re-render the whole board ----
+  // renderBoard();   <-- REMOVE THIS LINE COMPLETELY
+
   clearSelectionUI();
 
+  // ---- 5. Play correct sound ----
   if (chess.in_check()) {
     checkSound.play();
     return;

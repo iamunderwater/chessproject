@@ -294,28 +294,67 @@ function renderBoard() {
   clearHighlights();
 }
 
-function movePieceDOM(from, to) {
-  const fromSquare = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
-  const piece = fromSquare.querySelector(".piece");
+function movePieceDOM(from, to, mvResult) {
+  const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
+  const toSq   = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
 
+  if (!fromSq || !toSq) return;
+
+  const piece = fromSq.querySelector(".piece");
   if (!piece) return;
 
-  const toSquare = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
+  // ----- REMOVE CAPTURED PIECE -----
+  if (mvResult.captured) {
+    const capturedSq = toSq.querySelector(".piece");
+    if (capturedSq) capturedSq.remove();
 
-  // Calculate pixel distance
-  const rectFrom = fromSquare.getBoundingClientRect();
-  const rectTo = toSquare.getBoundingClientRect();
+    // En-passant special capture
+    if (mvResult.flags.includes("e")) {
+      const capRow = from.r;
+      const capCol = to.c;
+      const epSq = document.querySelector(`.square[data-row='${capRow}'][data-col='${capCol}']`);
+      const epPiece = epSq.querySelector(".piece");
+      if (epPiece) epPiece.remove();
+    }
+  }
+
+  // ----- CASTLING (move rook also) -----
+  if (mvResult.flags.includes("k")) {
+    // king-side
+    const rookFrom = { r: from.r, c: 7 };
+    const rookTo   = { r: from.r, c: 5 };
+
+    const rookSq = document.querySelector(`.square[data-row='${rookFrom.r}'][data-col='${rookFrom.c}']`);
+    const rook = rookSq.querySelector(".piece");
+    const targetSq = document.querySelector(`.square[data-row='${rookTo.r}'][data-col='${rookTo.c}']`);
+
+    if (rook && targetSq) targetSq.appendChild(rook);
+  }
+
+  if (mvResult.flags.includes("q")) {
+    // queen-side castling
+    const rookFrom = { r: from.r, c: 0 };
+    const rookTo   = { r: from.r, c: 3 };
+
+    const rookSq = document.querySelector(`.square[data-row='${rookFrom.r}'][data-col='${rookFrom.c}']`);
+    const rook = rookSq.querySelector(".piece");
+    const targetSq = document.querySelector(`.square[data-row='${rookTo.r}'][data-col='${rookTo.c}']`);
+
+    if (rook && targetSq) targetSq.appendChild(rook);
+  }
+
+  // ----- ANIMATE KING / PIECE -----
+  const rectFrom = fromSq.getBoundingClientRect();
+  const rectTo = toSq.getBoundingClientRect();
 
   const dx = rectTo.left - rectFrom.left;
   const dy = rectTo.top - rectFrom.top;
 
-  // Animate
   piece.style.transform = `translate(${dx}px, ${dy}px)`;
 
-  // After animation ends → move DOM permanently
   setTimeout(() => {
     piece.style.transform = "";
-    toSquare.appendChild(piece);
+    toSq.appendChild(piece);
   }, 150);
 }
 
@@ -427,7 +466,8 @@ socket.on("boardstate", fen => {
 
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
-  // ---- 1. Compute from → to squares for animation ----
+
+  // compute from-to squares
   const from = {
     r: 8 - parseInt(mv.from[1]),
     c: mv.from.charCodeAt(0) - 97
@@ -438,24 +478,20 @@ socket.on("move", mv => {
     c: mv.to.charCodeAt(0) - 97
   };
 
-  // ---- 2. Animate move visually ----
-  movePieceDOM(from, to);
+  // update engine first (we need flags: capture, castle etc)
+  const mvResult = chess.move(mv);
 
-  // ---- 3. Update chess engine AFTER animation ----
-  const res = chess.move(mv);
-
-  // ---- 4. Do NOT re-render the whole board ----
-  // renderBoard();   <-- REMOVE THIS LINE COMPLETELY
+  // play animation with full move info
+  movePieceDOM(from, to, mvResult);
 
   clearSelectionUI();
 
-  // ---- 5. Play correct sound ----
   if (chess.in_check()) {
     checkSound.play();
     return;
   }
 
-  if (res && res.captured) captureSound.play();
+  if (mvResult && mvResult.captured) captureSound.play();
   else moveSound.play();
 });
 

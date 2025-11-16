@@ -1,10 +1,13 @@
 const socket = io();
 const chess = new Chess();
 
-// DOM references
-let boardEl, popup, popupText, playAgain, topTimer, bottomTimer;
-
-
+// DOM references (some are assigned later during init)
+let boardEl = null;
+let popup = null;
+let popupText = null;
+let playAgain = null;
+let topTimer = null;
+let bottomTimer = null;
 
 let role = null;
 
@@ -51,7 +54,7 @@ function clearHighlights() {
 function highlightMoves(row, col) {
   clearHighlights();
   const from = `${String.fromCharCode(97 + col)}${8 - row}`;
-  const moves = chess.moves({ square: from, verbose: true });
+  const moves = chess.moves({ square: from, verbose: true }) || [];
 
   moves.forEach(mv => {
     const r = 8 - parseInt(mv.to[1]);
@@ -72,6 +75,7 @@ function clearSelectionUI() {
 
 // ---------------- BOARD RENDER ----------------
 function renderBoard() {
+  if (!boardEl) return;
   const board = chess.board();
   boardEl.innerHTML = "";
 
@@ -125,7 +129,10 @@ function renderBoard() {
           dragImg.style.position = "absolute";
           dragImg.style.top = "-9999px";
           document.body.appendChild(dragImg);
-          e.dataTransfer.setDragImage(dragImg, dragImg.width / 2, dragImg.height / 2);
+          // safe guard for drag image sizes
+          const w = dragImg.width || 70;
+          const h = dragImg.height || 70;
+          e.dataTransfer.setDragImage(dragImg, w / 2, h / 2);
 
           highlightMoves(r, c);
           piece.classList.add("dragging");
@@ -299,6 +306,7 @@ function handleMove(s, t) {
 // ---------------- TIMERS ----------------
 function updateTimers(t) {
   if (!t) return;
+  if (!topTimer || !bottomTimer) return;
   if (role === "b") {
     bottomTimer.innerText = fmt(t.b);
     topTimer.innerText = fmt(t.w);
@@ -324,13 +332,17 @@ socket.on("matched", d => {
 
 // -------- WAITING SCREEN (Friend Mode or Quickplay) --------
 socket.on("waiting", d => {
-  document.getElementById("game").classList.add("hidden");
-  document.getElementById("waiting").classList.remove("hidden");
+  const gameEl = document.getElementById("game");
+  const waitEl = document.getElementById("waiting");
+  if (gameEl) gameEl.classList.add("hidden");
+  if (waitEl) waitEl.classList.remove("hidden");
 
-  document.getElementById("wait-text").innerText = d.text;
+  const wt = document.getElementById("wait-text");
+  if (wt && d && d.text) wt.innerText = d.text;
 
-  if (d.link) {
-    document.getElementById("room-link").innerText = d.link;
+  if (d && d.link) {
+    const rl = document.getElementById("room-link");
+    if (rl) rl.innerText = d.link;
   }
 });
 
@@ -339,8 +351,10 @@ socket.on("init", data => {
   localStorage.removeItem("quickplayRole");
   role = data.role;
 
-  document.getElementById("waiting").classList.add("hidden");
-  document.getElementById("game").classList.remove("hidden");
+  const waitingEl = document.getElementById("waiting");
+  const gameEl = document.getElementById("game");
+  if (waitingEl) waitingEl.classList.add("hidden");
+  if (gameEl) gameEl.classList.remove("hidden");
 
   boardEl = document.querySelector(".chessboard");
   popup = document.getElementById("popup");
@@ -349,7 +363,26 @@ socket.on("init", data => {
   topTimer = document.getElementById("top-timer");
   bottomTimer = document.getElementById("bottom-timer");
 
-  chess.load(data.fen);
+  // confirm/draw boxes & buttons (safe getters)
+  window.myBox = document.getElementById("my-confirm-box");
+  window.myText = document.getElementById("my-confirm-text");
+  window.myYes = document.getElementById("my-yes");
+  window.myNo = document.getElementById("my-no");
+
+  window.oppBox = document.getElementById("opp-confirm-box");
+  window.oppText = document.getElementById("opp-confirm-text");
+  window.oppYes = document.getElementById("opp-yes");
+  window.oppNo = document.getElementById("opp-no");
+
+  // draw message element
+  window.drawMessage = document.getElementById("draw-message");
+
+  // buttons
+  window.resignBtn = document.getElementById("resign-btn");
+  window.drawBtn = document.getElementById("draw-btn");
+
+  // load position and render
+  if (data && data.fen) chess.load(data.fen);
   renderBoard();
   updateTimers(data.timers);
 });
@@ -360,22 +393,6 @@ socket.on("boardstate", fen => {
   renderBoard();
   clearSelectionUI();
 });
-
-
-
-// Accept
-document.getElementById("draw-yes").onclick = () => {
-  socket.emit("acceptDraw", ROOM_ID);
-  document.getElementById("draw-offer-popup").classList.add("hidden");
-};
-
-// Decline
-document.getElementById("draw-no").onclick = () => {
-  socket.emit("declineDraw", ROOM_ID);
-  document.getElementById("draw-offer-popup").classList.add("hidden");
-};
-
-
 
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
@@ -395,12 +412,64 @@ socket.on("move", mv => {
 // -------- TIMERS --------
 socket.on("timers", t => updateTimers(t));
 
+// -------- DRAW OFFERED (opponent) --------
+// server emits "drawOffered" when opponent offered a draw
+socket.on("drawOffered", () => {
+  if (window.oppText && window.oppBox) {
+    window.oppText.innerText = "Opponent offers draw";
+    window.oppBox.classList.remove("hidden");
+
+    // attach handlers (replace previous to avoid multiple bindings)
+    if (window.oppYes) {
+      window.oppYes.onclick = () => {
+        socket.emit("acceptDraw", ROOM_ID);
+        window.oppBox.classList.add("hidden");
+      };
+    }
+    if (window.oppNo) {
+      window.oppNo.onclick = () => {
+        socket.emit("declineDraw", ROOM_ID);
+        window.oppBox.classList.add("hidden");
+      };
+    }
+  } else {
+    // fallback: show a simple popup if oppBox missing
+    if (popupText && popup) {
+      popupText.innerText = "Opponent offers a draw";
+      popup.classList.add("show");
+      setTimeout(() => popup.classList.remove("show"), 2000);
+    }
+  }
+});
+
+// -------- OFFER ACCEPTED/DECLINED FEEDBACK (from server) --------
+socket.on("drawDeclined", () => {
+  if (window.drawMessage) {
+    window.drawMessage.innerText = "Opponent declined your draw request.";
+    setTimeout(() => {
+      if (window.drawMessage) window.drawMessage.innerText = "";
+    }, 3000);
+  } else if (popup && popupText) {
+    popupText.innerText = "Opponent declined your draw request.";
+    popup.classList.add("show");
+    setTimeout(() => popup.classList.remove("show"), 2000);
+  }
+});
+
+socket.on("drawAccepted", () => {
+  if (popup && popupText) {
+    popupText.innerText = "Draw agreed";
+    popup.classList.add("show");
+    setTimeout(() => popup.classList.remove("show"), 2000);
+  }
+});
+
 // -------- GAME OVER --------
 socket.on("gameover", winner => {
   let txt = "";
 
   // ========== RESIGNATION ==========
-  if (winner.includes("resigned")) {
+  if (typeof winner === "string" && winner.includes("resigned")) {
     if (winner.startsWith("White")) {
       txt = role === "b" ? "Opponent resigned — you win! 😎" : "You resigned! 💀";
     } else {
@@ -409,7 +478,7 @@ socket.on("gameover", winner => {
   }
 
   // ========== TIMEOUT ==========
-  else if (winner.includes("timeout")) {
+  else if (typeof winner === "string" && winner.includes("timeout")) {
     if (role === "w" && winner.startsWith("White")) txt = "EZ Timeout Win 😎";
     else if (role === "b" && winner.startsWith("Black"))
       txt = "Time’s up, victory is mine 🕒🔥";
@@ -426,94 +495,70 @@ socket.on("gameover", winner => {
     txt = role === "b" ? "You win 😎" : "You got outplayed bro 💀";
   }
 
-  popupText.innerText = txt;
-  popup.classList.add("show");
-  endSound.play();
+  if (popupText && popup) {
+    popupText.innerText = txt;
+    popup.classList.add("show");
+  } else {
+    // fallback alert (shouldn't normally be used)
+    try {
+      alert(txt);
+    } catch (e) {}
+  }
+
+  if (endSound) {
+    endSound.play();
+  }
 });
 
 // -------- RESET BUTTON --------
-document.getElementById("play-again").onclick = () => {
-  socket.emit("resetgame", ROOM_ID);
-  popup.classList.remove("show");
-};
+if (document.getElementById("play-again")) {
+  document.getElementById("play-again").onclick = () => {
+    socket.emit("resetgame", ROOM_ID);
+    if (popup) popup.classList.remove("show");
+  };
+}
 
-document.getElementById("resign-btn").onclick = () => {
-  socket.emit("resign", ROOM_ID);
-};
+// -------- RESIGN / DRAW buttons (client-side confirm boxes) --------
+function safeAttachResignDraw() {
+  if (window.resignBtn && window.myBox && window.myText && window.myYes && window.myNo) {
+    window.resignBtn.onclick = () => {
+      window.myText.innerText = "Are you sure you want to resign?";
+      window.myBox.classList.remove("hidden");
 
-document.getElementById("draw-btn").onclick = () => {
-  socket.emit("offerDraw", ROOM_ID);
-};
+      window.myYes.onclick = () => {
+        socket.emit("resign", ROOM_ID);
+        window.myBox.classList.add("hidden");
+      };
+      window.myNo.onclick = () => {
+        window.myBox.classList.add("hidden");
+      };
+    };
+  }
+
+  if (window.drawBtn && window.myBox && window.myText && window.myYes && window.myNo) {
+    window.drawBtn.onclick = () => {
+      window.myText.innerText = "Offer a draw?";
+      window.myBox.classList.remove("hidden");
+
+      window.myYes.onclick = () => {
+        socket.emit("offerDraw", ROOM_ID);
+        window.myBox.classList.add("hidden");
+      };
+      window.myNo.onclick = () => {
+        window.myBox.classList.add("hidden");
+      };
+    };
+  }
+}
+
+// Try to attach immediately (elements present when script loaded after HTML)
+// but also retry briefly if necessary (in case init hasn't run)
+safeAttachResignDraw();
+setTimeout(safeAttachResignDraw, 250);
+setTimeout(safeAttachResignDraw, 1000);
 
 // -------- JOIN ROOM ON PAGE LOAD --------
-if (ROOM_ID) {
+if (typeof ROOM_ID !== "undefined" && ROOM_ID) {
   const quickRole = localStorage.getItem("quickplayRole"); // "w" or "b" or null
   socket.emit("joinRoom", { roomId: ROOM_ID, role: quickRole });
 }
-const resignBtn = document.getElementById("resign-btn");
-const drawBtn = document.getElementById("draw-btn");
-
-const myBox = document.getElementById("my-confirm-box");
-const myText = document.getElementById("my-confirm-text");
-const myYes = document.getElementById("my-yes");
-const myNo = document.getElementById("my-no");
-
-const oppBox = document.getElementById("opp-confirm-box");
-const oppText = document.getElementById("opp-confirm-text");
-const oppYes = document.getElementById("opp-yes");
-const oppNo = document.getElementById("opp-no");
-
-
-// ---------------- RESIGN ----------------
-resignBtn.onclick = () => {
-    myText.innerText = "Are you sure you want to resign?";
-    myBox.classList.remove("hidden");
-
-    myYes.onclick = () => {
-        socket.emit("resign", ROOM_ID);
-        myBox.classList.add("hidden");
-    };
-    myNo.onclick = () => {
-        myBox.classList.add("hidden");
-    };
-};
-
-
-// ---------------- DRAW OFFER ----------------
-drawBtn.onclick = () => {
-    myText.innerText = "Offer a draw?";
-    myBox.classList.remove("hidden");
-
-    myYes.onclick = () => {
-        socket.emit("offerDraw", ROOM_ID);
-        myBox.classList.add("hidden");
-    };
-    myNo.onclick = () => {
-        myBox.classList.add("hidden");
-    };
-};
-
-
-// ---------------- OPPONENT OFFERED DRAW ----------------
-socket.on("drawOffered", () => {
-    oppText.innerText = "Opponent offers draw";
-    oppBox.classList.remove("hidden");
-
-    oppYes.onclick = () => {
-        socket.emit("acceptDraw", ROOM_ID);
-        oppBox.classList.add("hidden");
-    };
-
-    oppNo.onclick = () => {
-        socket.emit("declineDraw", ROOM_ID);
-        oppBox.classList.add("hidden");
-    };
-});
-
-
-// -------- When opponent declines your draw --------
-socket.on("drawDeclined", () => {
-  const msg = document.getElementById("draw-message");
-  msg.innerText = "Opponent declined your draw request.";
-  setTimeout(() => (msg.innerText = ""), 3000);  // auto-hide in 3 seconds
-});

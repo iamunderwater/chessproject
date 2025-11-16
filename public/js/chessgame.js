@@ -478,13 +478,13 @@ if (w.includes("resign")) {
 
     if (whiteResigned) {
         txt = role === "b"
-            ? "Opponent resigned — you win! 😎"
-            : "You resigned! 💀";
+            ? "You resigned! 💀"
+            : "Opponent resigned — you win! 😎";
     }
     else if (blackResigned) {
         txt = role === "w"
-            ? "Opponent resigned — you win! 😎"
-            : "You resigned! 💀";
+            ? "You resigned! 💀"
+            : "Opponent resigned — you win! 😎";
     }
     else {
         // fallback (in case the server sends weird strings)

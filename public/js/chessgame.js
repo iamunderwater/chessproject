@@ -375,10 +375,7 @@ document.getElementById("draw-no").onclick = () => {
   document.getElementById("draw-offer-popup").classList.add("hidden");
 };
 
-socket.on("gameover", msg => {
-  popupText.innerText = msg;
-  popup.classList.add("show");
-});
+
 
 // -------- MOVE EVENT --------
 socket.on("move", mv => {

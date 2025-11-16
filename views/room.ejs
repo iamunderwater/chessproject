@@ -101,6 +101,36 @@ body {
   border-radius:50%;
   position:absolute;
 }
+
+/* Wrapper = board + timers */
+.board-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* SIDE TIMERS (right side of board) */
+.side-timer {
+  position: absolute;
+  right: -140px;    /* distance from chessboard */
+  width: 120px;
+  padding: 10px 0;
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  background: #111;
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(0,255,255,0.4);
+}
+
+/* Top timer position */
+#top-timer {
+  top: 25px;
+}
+
+/* Bottom timer position */
+#bottom-timer {
+  bottom: 25px;
+}
 </style>
 </head>
 
@@ -115,13 +145,17 @@ body {
 <!-- GAME UI -->
 <div id="game" class="hidden">
 
-  <div class="game-wrapper">
+  <div class="board-wrapper">
+
+    <!-- TOP TIMER (right side) -->
+    <div id="top-timer" class="side-timer">05:00</div>
+
+    <!-- CHESSBOARD -->
     <div class="chessboard"></div>
 
-    <div class="timer-column">
-      <div id="top-timer" class="timer-box">05:00</div>
-      <div id="bottom-timer" class="timer-box">05:00</div>
-    </div>
+    <!-- BOTTOM TIMER (right side) -->
+    <div id="bottom-timer" class="side-timer">05:00</div>
+
   </div>
 
   <div id="popup">
@@ -131,7 +165,6 @@ body {
     </div>
   </div>
 </div>
-
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <script>

@@ -71,215 +71,34 @@ function clearSelectionUI() {
 }
 
 // ---------------- BOARD RENDER ----------------
-function renderBoard() {
-  const board = chess.board();
-  boardEl.innerHTML = "";
-
-  board.forEach((row, r) => {
-    row.forEach((sq, c) => {
+function initBoard() {
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
       const cell = document.createElement("div");
       cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
       cell.dataset.row = r;
       cell.dataset.col = c;
-
-      // Tap-to-tap move
-      cell.addEventListener("click", () => {
-        if (selectedSource) {
-          handleMove(selectedSource, { row: r, col: c });
-          clearSelectionUI();
-        }
-      });
-
-      cell.addEventListener(
-        "touchend",
-        e => {
-          if (selectedSource) {
-            e.preventDefault();
-            handleMove(selectedSource, { row: r, col: c });
-            clearSelectionUI();
-          }
-        },
-        { passive: false }
-      );
-
-      if (sq) {
-        const piece = document.createElement("div");
-        piece.classList.add("piece", sq.color === "w" ? "white" : "black");
-
-        const img = document.createElement("img");
-        img.src = pieceImage(sq);
-        img.classList.add("piece-img");
-        piece.appendChild(img);
-
-        piece.draggable = role === sq.color;
-
-        // -------- Desktop dragstart --------
-        piece.addEventListener("dragstart", e => {
-          if (!piece.draggable) return;
-          dragged = piece;
-          source = { row: r, col: c };
-          e.dataTransfer.setData("text/plain", "");
-
-          // custom drag image
-          const dragImg = img.cloneNode(true);
-          dragImg.style.position = "absolute";
-          dragImg.style.top = "-9999px";
-          document.body.appendChild(dragImg);
-          e.dataTransfer.setDragImage(dragImg, dragImg.width / 2, dragImg.height / 2);
-
-          highlightMoves(r, c);
-          piece.classList.add("dragging");
-        });
-
-        // -------- Desktop dragend --------
-        piece.addEventListener("dragend", () => {
-          dragged = null;
-          source = null;
-          piece.classList.remove("dragging");
-
-          const clone = document.querySelector("body > img[style*='-9999px']");
-          if (clone) clone.remove();
-
-          clearHighlights();
-        });
-
-        // -------- Mobile touchstart --------
-        piece.addEventListener(
-          "touchstart",
-          e => {
-            e.preventDefault();
-            if (role !== sq.color) {
-              clearSelectionUI();
-              return;
-            }
-
-            // start mobile drag
-            touchDrag.active = true;
-            touchDrag.startSquare = { row: r, col: c };
-            touchDrag.lastTargetSquare = null;
-
-            const floating = img.cloneNode(true);
-            floating.style.position = "fixed";
-            floating.style.left = `${e.touches[0].clientX}px`;
-            floating.style.top = `${e.touches[0].clientY}px`;
-            floating.style.transform = "translate(-50%, -50%)";
-            floating.style.zIndex = 9999;
-            floating.style.pointerEvents = "none";
-            document.body.appendChild(floating);
-            touchDrag.floating = floating;
-
-            highlightMoves(r, c);
-
-            clearSelectionUI();
-            selectedSource = { row: r, col: c };
-            selectedElement = piece;
-            selectedElement.classList.add("selected");
-          },
-          { passive: false }
-        );
-
-        // -------- Mobile touchmove --------
-        piece.addEventListener(
-          "touchmove",
-          e => {
-            if (!touchDrag.active || !touchDrag.floating) return;
-            e.preventDefault();
-            const t = e.touches[0];
-            touchDrag.floating.style.left = `${t.clientX}px`;
-            touchDrag.floating.style.top = `${t.clientY}px`;
-
-            const el = document.elementFromPoint(t.clientX, t.clientY);
-            if (!el) return;
-            const sqEl = el.closest(".square");
-            if (!sqEl) {
-              touchDrag.lastTargetSquare = null;
-              return;
-            }
-
-            touchDrag.lastTargetSquare = {
-              row: parseInt(sqEl.dataset.row),
-              col: parseInt(sqEl.dataset.col)
-            };
-          },
-          { passive: false }
-        );
-
-        // -------- Mobile touchend --------
-        piece.addEventListener(
-          "touchend",
-          e => {
-            if (!touchDrag.active) return;
-
-            e.preventDefault();
-
-            let target = touchDrag.lastTargetSquare;
-
-            if (!target) {
-              const t = e.changedTouches[0];
-              const el = document.elementFromPoint(t.clientX, t.clientY);
-              const sqEl = el && el.closest(".square");
-              if (sqEl) {
-                target = {
-                  row: parseInt(sqEl.dataset.row),
-                  col: parseInt(sqEl.dataset.col)
-                };
-              }
-            }
-
-            if (touchDrag.floating) touchDrag.floating.remove();
-
-            if (target) {
-              handleMove(touchDrag.startSquare, target);
-            }
-
-            touchDrag = {
-              active: false,
-              startSquare: null,
-              floating: null,
-              lastTargetSquare: null
-            };
-
-            clearHighlights();
-          },
-          { passive: false }
-        );
-
-        // -------- Click selection --------
-        piece.addEventListener("click", () => {
-          if (role !== sq.color) return;
-
-          if (selectedSource && selectedSource.row === r && selectedSource.col === c) {
-            clearSelectionUI();
-          } else {
-            clearSelectionUI();
-            selectedSource = { row: r, col: c };
-            selectedElement = piece;
-            selectedElement.classList.add("selected");
-            highlightMoves(r, c);
-          }
-        });
-
-        cell.appendChild(piece);
-      }
-
-      // Desktop drop
-      cell.addEventListener("dragover", e => e.preventDefault());
-      cell.addEventListener("drop", e => {
-        e.preventDefault();
-        if (dragged && source) {
-          handleMove(source, { row: r, col: c });
-        }
-        clearHighlights();
-      });
-
       boardEl.appendChild(cell);
+    }
+  }
+}
+
+function renderPieces() {
+  document.querySelectorAll(".piece").forEach(p => p.remove());
+
+  const board = chess.board();
+
+  board.forEach((row, r) => {
+    row.forEach((sq, c) => {
+      if (!sq) return;
+
+      const piece = document.createElement("img");
+      piece.src = pieceImage(sq);
+      piece.classList.add("piece");
+      piece.style.transform = `translate(${c * 80}px, ${r * 80}px)`;
+      boardEl.appendChild(piece);
     });
   });
-
-  if (role === "b") boardEl.classList.add("flipped");
-  else boardEl.classList.remove("flipped");
-
-  clearHighlights();
 }
 
 // ---------------- HANDLE MOVES ----------------
@@ -350,21 +169,22 @@ socket.on("init", data => {
   bottomTimer = document.getElementById("bottom-timer");
 
   chess.load(data.fen);
-  renderBoard();
+  initBoard();        // build the 64 squares once
+  renderPieces();     // draw pieces on squares
   updateTimers(data.timers);
 });
 
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
   chess.load(fen);
-  renderBoard();
+  renderPieces();
   clearSelectionUI();
 });
 
 // -------- MOVE EVENT --------
 socket.on("move", mv => {
   const res = chess.move(mv);
-  renderBoard();
+  renderPieces();
   clearSelectionUI();
 
   if (chess.in_check()) {

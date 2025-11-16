@@ -22,6 +22,7 @@ body {
 
 /* ========== YOUR FULL EXISTING STYLES ========== */
 .chessboard {
+  position: relative;
   display:grid;
   grid-template-columns:repeat(8,80px);
   grid-template-rows:repeat(8,80px);
@@ -47,6 +48,14 @@ body {
   height:70px;
   user-select:none;
   pointer-events:none;
+}
+
+.piece {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  transition: transform 0.15s ease-in-out;
+  pointer-events: none; /* drag works because we detect from squares */
 }
 
 .flipped { transform:rotate(180deg); }

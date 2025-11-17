@@ -1,23 +1,18 @@
 const socket = io();
 const chess = new Chess();
 
-// DOM references (some are assigned later during init)
+// DOM references (some assigned later during init)
 let boardEl = null;
 let popup = null;
 let popupText = null;
 let playAgain = null;
 let topTimer = null;
 let bottomTimer = null;
+
 let isAnimating = false;
 let pendingFen = null;
 
-let role = null;
-function orient(r, c) {
-  if (role === "b") {
-    return { row: 7 - r, col: 7 - c };
-  }
-  return { row: r, col: c };
-}
+let role = null; // 'w' | 'b' | null
 
 // Desktop drag
 let dragged = null;
@@ -61,6 +56,7 @@ function clearHighlights() {
 
 function highlightMoves(row, col) {
   clearHighlights();
+  // row,col here are engine coords (0..7)
   const from = `${String.fromCharCode(97 + col)}${8 - row}`;
   const moves = chess.moves({ square: from, verbose: true }) || [];
 
@@ -83,18 +79,13 @@ function clearSelectionUI() {
 
 // ---------------- EVENT ATTACHER ----------------
 function attachPieceEvents(piece, r, c) {
-  // remove previous handlers to avoid duplicates
-  piece.replaceWith(piece.cloneNode(true));
-  const newPiece = piece.parentNode
-    ? piece.parentNode.querySelector(".piece:last-child") || piece
-    : piece;
-  // In many cases above will return piece. To be safe, we re-select newly created element:
-  const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
-  const finalPiece = cell ? cell.querySelector(".piece") : newPiece;
-  if (!finalPiece) return;
+  // remove previous handlers to avoid duplicates by replacing element
+  const clone = piece.cloneNode(true);
+  piece.replaceWith(clone);
+  const finalPiece = clone;
 
-  // mark draggable depending on role
-  finalPiece.draggable = role && chess.board()[r] && chess.board()[r][c] ? (role === chess.board()[r][c].color) : false;
+  // mark draggable depending on role and engine board
+  finalPiece.draggable = !!(role && chess.board()[r] && chess.board()[r][c] && (role === chess.board()[r][c].color));
 
   // ---- DESKTOP DRAG START ----
   finalPiece.addEventListener("dragstart", e => {
@@ -114,8 +105,7 @@ function attachPieceEvents(piece, r, c) {
       const h = dragImg.height || 70;
       e.dataTransfer.setDragImage(dragImg, w / 2, h / 2);
       setTimeout(() => {
-        const clone = document.querySelector("body > img[style*='-9999px']");
-        if (clone) clone.remove();
+        if (dragImg && dragImg.parentNode) dragImg.remove();
       }, 1000);
     }
 
@@ -244,11 +234,11 @@ function renderBoard() {
       row.forEach((sq, c) => {
         const cell = document.createElement("div");
         cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
+        // store engine coordinates in dataset
         cell.dataset.row = r;
         cell.dataset.col = c;
         cell.style.left = `${c * 80}px`;
         cell.style.top = `${r * 80}px`;
-         // keep cell relative so pieces (if any) can be inside
 
         // Tap-to-tap movement
         cell.addEventListener("click", () => {
@@ -266,7 +256,7 @@ function renderBoard() {
           }
         }, { passive: false });
 
-        // Add piece if exists
+        // Add piece if exists (engine coords)
         if (sq) {
           const piece = document.createElement("div");
           piece.classList.add("piece", sq.color === "w" ? "white" : "black");
@@ -308,7 +298,7 @@ function updateBoardPieces(board) {
   // Remove all current piece elements
   document.querySelectorAll(".piece").forEach(p => p.remove());
 
-  // Recreate piece DOM in correct squares
+  // Recreate piece DOM in correct squares (engine coords)
   board.forEach((row, r) => {
     row.forEach((sq, c) => {
       if (!sq) return;
@@ -334,14 +324,28 @@ function updateBoardPieces(board) {
 
 // ---------------- MOVE ANIMATION ----------------
 function movePieceDOM(from, to, mvResult) {
-  isAnimating = true; 
+  // from,to are engine coords {r,c}
+  // Make function robust so it never leaves isAnimating === true on early return
+  if (!boardEl) return;
+
+  // locate squares
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
   const toSq   = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
 
-  if (!fromSq || !toSq) return;
+  // If squares missing, skip animation and just ensure board is synced
+  if (!fromSq || !toSq) {
+    // ensure board sync
+    renderBoard();
+    return;
+  }
 
   const piece = fromSq.querySelector(".piece");
-  if (!piece) return;
+  if (!piece) {
+    renderBoard();
+    return;
+  }
+
+  isAnimating = true;
 
   // Board rect (for absolute coords)
   const boardRect = boardEl.getBoundingClientRect();
@@ -363,13 +367,12 @@ function movePieceDOM(from, to, mvResult) {
   // Remove original immediately so target square is free (prevents blocking)
   piece.remove();
 
-  // Handle captures
+  // Handle captures (remove target piece instantly so floating can move into empty square)
   if (mvResult && mvResult.captured) {
-    // regular capture: remove piece in target square
     const cap = toSq.querySelector(".piece");
     if (cap) cap.remove();
 
-    // en-passant capture (flag 'e'): captured pawn is behind 'to' square
+    // en-passant: captured pawn sits behind 'to' square in engine coords
     if (mvResult.flags && mvResult.flags.includes("e")) {
       const capRow = from.r;
       const capCol = to.c;
@@ -384,99 +387,89 @@ function movePieceDOM(from, to, mvResult) {
   const targetLeft = targetRect.left - boardRect.left;
   const targetTop = targetRect.top - boardRect.top;
 
-  // Special: castling - move rook DOM too (we don't animate rook here; we'll move it after)
+  // Special: castling - rook move (we'll move the rook DOM after animation)
   let rookMove = null;
   if (mvResult && mvResult.flags) {
     if (mvResult.flags.includes("k")) {
-      // king-side: rook from col7 to col5
-      rookMove = {
-        from: { r: from.r, c: 7 },
-        to:   { r: from.r, c: 5 }
-      };
+      rookMove = { from: { r: from.r, c: 7 }, to: { r: from.r, c: 5 } };
     } else if (mvResult.flags.includes("q")) {
-      // queen-side: rook from col0 to col3
-      rookMove = {
-        from: { r: from.r, c: 0 },
-        to:   { r: from.r, c: 3 }
-      };
+      rookMove = { from: { r: from.r, c: 0 }, to: { r: from.r, c: 3 } };
     }
   }
 
+  // trigger layout before animating
   floating.getBoundingClientRect();
 
-  // Start animation (move floating to target)
-  floating.getBoundingClientRect();
-
-// Now animate to final square
-requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
     floating.style.left = `${targetLeft}px`;
     floating.style.top = `${targetTop}px`;
-});
+  });
 
   // After animation, append piece (floating) into toSq and reattach events
   setTimeout(() => {
-    // If there was a promotion (mvResult.promotion) replace the image
-    if (mvResult && mvResult.promotion) {
-      const imgEl = floating.querySelector("img");
-      if (imgEl) {
-        const color = mvResult.color || (mvResult.san && mvResult.san[0] === mvResult.san[0].toUpperCase() ? 'w' : 'b');
-        imgEl.src = `/pieces/${(mvResult.color || 'w')}${mvResult.promotion.toUpperCase()}.svg`;
-      }
-    }
-
-    // reset floating styles and append to target cell
-    floating.style.position = "";
-    floating.style.left = "";
-    floating.style.top = "";
-    floating.style.width = "";
-    floating.style.height = "";
-    floating.style.zIndex = "";
-    floating.style.pointerEvents = "";
-    floating.style.transition = "";
-    toSq.appendChild(floating);
-
-    // reattach events on moved piece
-    attachPieceEvents(floating, to.r, to.c);
-
-    // handle rook move for castling (move rook DOM to correct square)
-    if (rookMove) {
-      const rookFromSq = document.querySelector(`.square[data-row='${rookMove.from.r}'][data-col='${rookMove.from.c}']`);
-      const rookToSq = document.querySelector(`.square[data-row='${rookMove.to.r}'][data-col='${rookMove.to.c}']`);
-      if (rookFromSq && rookToSq) {
-        const rookPiece = rookFromSq.querySelector(".piece");
-        if (rookPiece) {
-          // move rook instantly (we could animate similarly if wanted)
-          rookToSq.appendChild(rookPiece);
-          attachPieceEvents(rookPiece, rookMove.to.r, rookMove.to.c);
+    try {
+      // promotion handling
+      if (mvResult && mvResult.promotion) {
+        const imgEl = floating.querySelector("img");
+        if (imgEl) {
+          const color = mvResult.color || 'w';
+          imgEl.src = `/pieces/${color}${mvResult.promotion.toUpperCase()}.svg`;
         }
       }
-    }
 
-    // finally, make sure board DOM lines up with engine (in rare sync cases)
-    // we won't call full render here to avoid jump; but updateBoardPieces when a boardstate arrives
-  isAnimating = false; 
-    if (pendingFen) {
-    chess.load(pendingFen);
-    pendingFen = null;
-    // re-render now that animation is finished
-    renderBoard();
-    clearSelectionUI();
-  }
-  }, 180);
+      // reset floating styles and append to target cell
+      floating.style.position = "";
+      floating.style.left = "";
+      floating.style.top = "";
+      floating.style.width = "";
+      floating.style.height = "";
+      floating.style.zIndex = "";
+      floating.style.pointerEvents = "";
+      floating.style.transition = "";
+      toSq.appendChild(floating);
+
+      // reattach events on moved piece
+      attachPieceEvents(floating, to.r, to.c);
+
+      // handle rook move for castling (instant move)
+      if (rookMove) {
+        const rookFromSq = document.querySelector(`.square[data-row='${rookMove.from.r}'][data-col='${rookMove.from.c}']`);
+        const rookToSq = document.querySelector(`.square[data-row='${rookMove.to.r}'][data-col='${rookMove.to.c}']`);
+        if (rookFromSq && rookToSq) {
+          const rookPiece = rookFromSq.querySelector(".piece");
+          if (rookPiece) {
+            rookToSq.appendChild(rookPiece);
+            attachPieceEvents(rookPiece, rookMove.to.r, rookMove.to.c);
+          }
+        }
+      }
+    } finally {
+      // Always clear anim flag and apply pendingFen if any
+      isAnimating = false;
+
+      if (pendingFen) {
+        try {
+          chess.load(pendingFen);
+        } catch (e) {
+          // if loading fails, ignore — next boardstate should fix it
+        }
+        pendingFen = null;
+        renderBoard();
+        clearSelectionUI();
+      }
+    }
+  }, 200); // slightly more than CSS transition to be safe
 }
 
 // ---------------- HANDLE MOVES ----------------
 function handleMove(s, t) {
+  // s,t are engine coords (dataset values)
   if (!s) return;
   if (s.row === t.row && s.col === t.col) return;
 
-  // convert DOM coords → logical chess coords
-  const S = orient(s.row, s.col);
-  const T = orient(t.row, t.col);
-
   const mv = {
-    from: `${String.fromCharCode(97 + S.col)}${8 - S.row}`,
-    to:   `${String.fromCharCode(97 + T.col)}${8 - T.row}`,
+    from: `${String.fromCharCode(97 + s.col)}${8 - s.row}`,
+    to: `${String.fromCharCode(97 + t.col)}${8 - t.row}`,
     promotion: "q"
   };
 
@@ -500,17 +493,13 @@ function updateTimers(t) {
 // SOCKET EVENTS
 // ======================================================
 
-// -------- QUICK PLAY MATCHED --------
 socket.on("matched", d => {
   if (d && d.roomId && d.role) {
-    // save role for joinRoom
     localStorage.setItem("quickplayRole", d.role);
-
     window.location = `/room/${d.roomId}`;
   }
 });
 
-// -------- WAITING SCREEN (Friend Mode or Quickplay) --------
 socket.on("waiting", d => {
   const gameEl = document.getElementById("game");
   const waitEl = document.getElementById("waiting");
@@ -569,47 +558,53 @@ socket.on("init", data => {
 
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
-  // If an animation is in progress, defer applying the boardstate
+  // If this client is currently animating (i.e., the mover), defer applying new fen until animation ends.
+  // If not animating, apply immediately.
   if (isAnimating) {
     pendingFen = fen;
     return;
   }
-  chess.load(fen);
+  try {
+    chess.load(fen);
+  } catch (e) {
+    // ignore; a future boardstate will correct
+  }
   renderBoard();
   clearSelectionUI();
 });
 
 // -------- MOVE EVENT --------
-
 socket.on("move", mv => {
-  // Determine who made the move: chess.turn() (before the move) is the mover
-  const moverColor = chess.turn(); // <-- FIXED: use chess.turn() directly
-
-  // Apply move to engine (get flags, captured, promotion etc)
-  const mvResult = chess.move(mv);
-
-  // Convert move → board coords
-  const from = {
-    r: 8 - parseInt(mv.from[1]),
-    c: mv.from.charCodeAt(0) - 97
-  };
-  const to = {
-    r: 8 - parseInt(mv.to[1]),
-    c: mv.to.charCodeAt(0) - 97
-  };
-
-  // Only animate on the client that actually made the move
-  if (moverColor === role) {
-    movePieceDOM(from, to, mvResult);
-  } else {
-    // Opponent moved — we will not animate here.
-    // The server will send boardstate; if it arrives right away and
-    // we are animating, boardstate handler will defer until animation completes.
+  // Apply move to client engine safely
+  let mvResult = null;
+  try {
+    // Use sloppy true to be tolerant of SAN-ish shapes, but server sends {from,to} so it's fine
+    mvResult = chess.move(mv, { sloppy: true });
+  } catch (err) {
+    // invalid move locally (maybe out-of-sync) — request full boardstate by ignoring and waiting for boardstate
+    return;
   }
 
-  clearSelectionUI();
+  if (!mvResult) {
+    // move couldn't be applied locally — we'll wait for boardstate event which server should send
+    return;
+  }
 
-  // Play sounds (keep as you had them)
+  // Compute engine coords for animation
+  const from = { r: 8 - parseInt(mv.from[1]), c: mv.from.charCodeAt(0) - 97 };
+  const to = { r: 8 - parseInt(mv.to[1]), c: mv.to.charCodeAt(0) - 97 };
+
+  // Only animate on client that made the move (mvResult.color equals mover)
+  if (mvResult.color === role) {
+    // animate locally for mover
+    movePieceDOM(from, to, mvResult);
+  } else {
+    // Opponent moved — do not animate (they will still receive boardstate and render)
+    // But ensure selection UI cleared
+    clearSelectionUI();
+  }
+
+  // sounds: play for both sides (so opponent hears move)
   if (chess.in_check()) checkSound.play();
   else if (mvResult && mvResult.captured) captureSound.play();
   else moveSound.play();
@@ -624,7 +619,6 @@ socket.on("drawOffered", () => {
     window.oppText.innerText = "Opponent offers draw";
     window.oppBox.classList.remove("hidden");
 
-    // attach handlers (replace previous to avoid multiple bindings)
     if (window.oppYes) {
       window.oppYes.onclick = () => {
         socket.emit("acceptDraw", ROOM_ID);
@@ -646,7 +640,6 @@ socket.on("drawOffered", () => {
   }
 });
 
-// -------- OFFER ACCEPTED/DECLINED FEEDBACK (from server) --------
 socket.on("drawDeclined", () => {
   if (window.drawMessage) {
     window.drawMessage.innerText = "Opponent declined your draw request.";
@@ -672,7 +665,6 @@ socket.on("drawAccepted", () => {
 socket.on("gameover", winner => {
   let txt = "";
 
-  // ========== RESIGNATION ==========
   let w = (winner || "").toString().trim().toLowerCase();
 
   if (w.includes("resign")) {
@@ -687,15 +679,12 @@ socket.on("gameover", winner => {
       txt = "Opponent resigned — you win! 😎";
     }
   }
-  // ========== TIMEOUT ==========
   else if (typeof winner === "string" && winner.includes("timeout")) {
     if (role === "w" && winner.startsWith("White")) txt = "EZ Timeout Win 😎";
     else if (role === "b" && winner.startsWith("Black")) txt = "Time’s up, victory is mine 🕒🔥";
     else txt = "Skill issue? 🫵😂";
   }
-  // ========== DRAW ==========
   else if (winner === "Draw") txt = "Both are noobs";
-  // ========== CHECKMATE ==========
   else if (winner === "White") {
     txt = role === "w" ? "You win 😎" : "You got outplayed bro 💀";
   } else if (winner === "Black") {
@@ -753,8 +742,6 @@ function safeAttachResignDraw() {
   }
 }
 
-// Try to attach immediately (elements present when script loaded after HTML)
-// but also retry briefly if necessary (in case init hasn't run)
 safeAttachResignDraw();
 setTimeout(safeAttachResignDraw, 250);
 setTimeout(safeAttachResignDraw, 1000);

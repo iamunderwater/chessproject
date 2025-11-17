@@ -8,6 +8,7 @@ let popupText = null;
 let playAgain = null;
 let topTimer = null;
 let bottomTimer = null;
+let isAnimating = false;
 
 let role = null;
 
@@ -326,6 +327,7 @@ function updateBoardPieces(board) {
 
 // ---------------- MOVE ANIMATION ----------------
 function movePieceDOM(from, to, mvResult) {
+  isAnimating = true; 
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
   const toSq   = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
 
@@ -445,7 +447,7 @@ requestAnimationFrame(() => {
 
     // finally, make sure board DOM lines up with engine (in rare sync cases)
     // we won't call full render here to avoid jump; but updateBoardPieces when a boardstate arrives
-
+  isAnimating = false; 
   }, 180);
 }
 
@@ -550,8 +552,12 @@ socket.on("init", data => {
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
   chess.load(fen);
-  renderBoard();
-  clearSelectionUI();
+
+  // Only update if not animating
+  if (!isAnimating) {
+    renderBoard();
+    clearSelectionUI();
+  }
 });
 
 // -------- MOVE EVENT --------

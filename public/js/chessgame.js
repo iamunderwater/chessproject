@@ -12,6 +12,12 @@ let isAnimating = false;
 let pendingFen = null;
 
 let role = null;
+function orient(r, c) {
+  if (role === "b") {
+    return { row: 7 - r, col: 7 - c };
+  }
+  return { row: r, col: c };
+}
 
 // Desktop drag
 let dragged = null;
@@ -464,9 +470,13 @@ function handleMove(s, t) {
   if (!s) return;
   if (s.row === t.row && s.col === t.col) return;
 
+  // convert DOM coords → logical chess coords
+  const S = orient(s.row, s.col);
+  const T = orient(t.row, t.col);
+
   const mv = {
-    from: `${String.fromCharCode(97 + s.col)}${8 - s.row}`,
-    to: `${String.fromCharCode(97 + t.col)}${8 - t.row}`,
+    from: `${String.fromCharCode(97 + S.col)}${8 - S.row}`,
+    to:   `${String.fromCharCode(97 + T.col)}${8 - T.row}`,
     promotion: "q"
   };
 

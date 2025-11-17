@@ -552,41 +552,45 @@ socket.on("init", data => {
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
   chess.load(fen);
-
-  // Only update if not animating
-  if (!isAnimating) {
-    renderBoard();
-    clearSelectionUI();
-  }
+  renderBoard();
+  clearSelectionUI();
 });
 
 // -------- MOVE EVENT --------
+
 socket.on("move", mv => {
-  // apply move to engine first (get flags, captured, promotion etc)
+  // Determine who made the move
+  const moverColor = chess.turn() === "w" ? "b" : "w"; 
+  // because chess.turn() gives the *next* player to move
+
+  // Apply move to engine
   const mvResult = chess.move(mv);
 
-  // compute from-to squares for animation
+  // Convert move → board coords
   const from = {
     r: 8 - parseInt(mv.from[1]),
     c: mv.from.charCodeAt(0) - 97
   };
-
   const to = {
     r: 8 - parseInt(mv.to[1]),
     c: mv.to.charCodeAt(0) - 97
   };
 
-  // animate DOM change
-  movePieceDOM(from, to, mvResult);
+  // ----------------------------
+  // 🔥 FIX: Only animate if *I* made the move
+  // ----------------------------
+  if (moverColor === role) {
+    // I moved → animate
+    movePieceDOM(from, to, mvResult);
+  } 
+  // Opponent moved → do NOT animate
+  // full boardstate will update normally through "boardstate" event
 
   clearSelectionUI();
 
-  if (chess.in_check()) {
-    checkSound.play();
-    return;
-  }
-
-  if (mvResult && mvResult.captured) captureSound.play();
+  // Sounds
+  if (chess.in_check()) checkSound.play();
+  else if (mvResult && mvResult.captured) captureSound.play();
   else moveSound.play();
 });
 

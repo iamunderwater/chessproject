@@ -28,26 +28,24 @@ body {
 /* >>> THIS IS THE FINAL, CLEAN, NON-CONFLICTING VERSION <<< */
 
 .chessboard {
-  /* grid */
-  display:grid;
-  grid-template-columns:repeat(8,80px);
-  grid-template-rows:repeat(8,80px);
-  width:640px;
-  height:640px;
-  box-shadow:0 0 20px #333;
-  border-radius:6px;
-  transition:transform .4s;
-
-  /* required for animation */
+  width: 640px;
+  height: 640px;
   position: relative;
   overflow: visible;
+  box-shadow: 0 0 20px #333;
+  border-radius: 6px;
+  transition: transform .4s;
+  display: block;   /* IMPORTANT: NOT GRID */
 }
 
+/* MAKE EACH SQUARE ABSOLUTE INSIDE BOARD */
 .square {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  position:relative;
+   width: 80px;
+  height: 80px;
+  position: absolute;     /* REQUIRED for smooth animation */
+  display: flex;          /* REQUIRED to center piece */
+  align-items: center;
+  justify-content: center;
 }
 
 .light { background:#f0d9b5; }

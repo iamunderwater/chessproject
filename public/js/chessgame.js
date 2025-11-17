@@ -238,7 +238,9 @@ function renderBoard() {
         cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
         cell.dataset.row = r;
         cell.dataset.col = c;
-        cell.style.position = "relative"; // keep cell relative so pieces (if any) can be inside
+        cell.style.left = `${c * 80}px`;
+        cell.style.top = `${r * 80}px`;
+         // keep cell relative so pieces (if any) can be inside
 
         // Tap-to-tap movement
         cell.addEventListener("click", () => {

@@ -550,11 +550,7 @@ socket.on("init", data => {
 });
 
 // -------- BOARD UPDATE --------
-socket.on("boardstate", fen => {
-  chess.load(fen);
-  renderBoard();
-  clearSelectionUI();
-});
+
 
 // -------- MOVE EVENT --------
 

@@ -55,11 +55,20 @@ body {
 
 /* Piece container */
 .piece {
-  position: absolute;
-  left:0;
-  top:0;
-  transition: transform 150ms ease;  /* for DOM-based animations */
+    position: absolute;
+  left: 0;
+  top: 0;
+
+  width: 80px;   /* THE FIX */
+  height: 80px;  /* THE FIX */
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  transition: transform 160ms cubic-bezier(.22,.9,.28,1);
   cursor: grab;
+  z-index: 3;
 }
 
 /* Piece image */

@@ -391,12 +391,16 @@ function movePieceDOM(from, to, mvResult) {
     }
   }
 
+  floating.getBoundingClientRect();
+
   // Start animation (move floating to target)
-  requestAnimationFrame(() => {
+  floating.getBoundingClientRect();
+
+// Now animate to final square
+requestAnimationFrame(() => {
     floating.style.left = `${targetLeft}px`;
     floating.style.top = `${targetTop}px`;
-    floating.style.transform = ""; // ensure no residual transform
-  });
+});
 
   // After animation, append piece (floating) into toSq and reattach events
   setTimeout(() => {

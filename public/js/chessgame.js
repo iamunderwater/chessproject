@@ -9,6 +9,7 @@ let playAgain = null;
 let topTimer = null;
 let bottomTimer = null;
 let isAnimating = false;
+let pendingFen = null;
 
 let role = null;
 
@@ -448,6 +449,13 @@ requestAnimationFrame(() => {
     // finally, make sure board DOM lines up with engine (in rare sync cases)
     // we won't call full render here to avoid jump; but updateBoardPieces when a boardstate arrives
   isAnimating = false; 
+    if (pendingFen) {
+    chess.load(pendingFen);
+    pendingFen = null;
+    // re-render now that animation is finished
+    renderBoard();
+    clearSelectionUI();
+  }
   }, 180);
 }
 
@@ -551,6 +559,11 @@ socket.on("init", data => {
 
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
+  // If an animation is in progress, defer applying the boardstate
+  if (isAnimating) {
+    pendingFen = fen;
+    return;
+  }
   chess.load(fen);
   renderBoard();
   clearSelectionUI();
@@ -559,11 +572,10 @@ socket.on("boardstate", fen => {
 // -------- MOVE EVENT --------
 
 socket.on("move", mv => {
-  // Determine who made the move
-  const moverColor = chess.turn() === "w" ? "b" : "w"; 
-  // because chess.turn() gives the *next* player to move
+  // Determine who made the move: chess.turn() (before the move) is the mover
+  const moverColor = chess.turn(); // <-- FIXED: use chess.turn() directly
 
-  // Apply move to engine
+  // Apply move to engine (get flags, captured, promotion etc)
   const mvResult = chess.move(mv);
 
   // Convert move → board coords
@@ -576,19 +588,18 @@ socket.on("move", mv => {
     c: mv.to.charCodeAt(0) - 97
   };
 
-  // ----------------------------
-  // 🔥 FIX: Only animate if *I* made the move
-  // ----------------------------
+  // Only animate on the client that actually made the move
   if (moverColor === role) {
-    // I moved → animate
     movePieceDOM(from, to, mvResult);
-  } 
-  // Opponent moved → do NOT animate
-  // full boardstate will update normally through "boardstate" event
+  } else {
+    // Opponent moved — we will not animate here.
+    // The server will send boardstate; if it arrives right away and
+    // we are animating, boardstate handler will defer until animation completes.
+  }
 
   clearSelectionUI();
 
-  // Sounds
+  // Play sounds (keep as you had them)
   if (chess.in_check()) checkSound.play();
   else if (mvResult && mvResult.captured) captureSound.play();
   else moveSound.play();

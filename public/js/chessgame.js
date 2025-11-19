@@ -457,7 +457,7 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 180);
+  }, 220);
 }
 
 // ---------------- HANDLE MOVES ----------------
@@ -568,7 +568,7 @@ socket.on("boardstate", fen => {
   setTimeout(() => {
     renderBoard();
     clearSelectionUI();
-  }, 200);
+  }, 250);
 });
 
 // -------- MOVE EVENT --------

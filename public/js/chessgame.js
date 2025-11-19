@@ -457,7 +457,7 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 220);
+  }, 180);
 }
 
 // ---------------- HANDLE MOVES ----------------
@@ -561,14 +561,8 @@ socket.on("init", data => {
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
   chess.load(fen);
-  
-  // ADDED: Delay the full board re-render by a few milliseconds (200ms) 
-  // to ensure the smooth piece animation (180ms) is finished before 
-  // the DOM is torn down and rebuilt. This restores drag/click functionality.
-  setTimeout(() => {
-    renderBoard();
-    clearSelectionUI();
-  }, 250);
+  renderBoard(); 
+  clearSelectionUI();
 });
 
 // -------- MOVE EVENT --------

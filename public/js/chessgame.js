@@ -561,11 +561,14 @@ socket.on("init", data => {
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
   chess.load(fen);
-  // The 'move' event already handles the visual update for the piece that moved.
-  // Full re-render is slow and cancels out the smooth animation.
-  // Only use load(fen) for game state sync, and rely on movePieceDOM for visuals.
-  // renderBoard(); // <--- REMOVE OR COMMENT OUT THIS LINE
-  clearSelectionUI();
+  
+  // ADDED: Delay the full board re-render by a few milliseconds (200ms) 
+  // to ensure the smooth piece animation (180ms) is finished before 
+  // the DOM is torn down and rebuilt. This restores drag/click functionality.
+  setTimeout(() => {
+    renderBoard();
+    clearSelectionUI();
+  }, 200);
 });
 
 // -------- MOVE EVENT --------

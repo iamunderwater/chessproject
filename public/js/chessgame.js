@@ -325,49 +325,58 @@ function updateBoardPieces(board) {
 }
 
 // ---------------- MOVE ANIMATION ----------------
-// ---------------- MOVE ANIMATION ----------------
 function movePieceDOM(from, to, mvResult) {
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
   const toSq   = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
+  const SQUARE_SIZE = 80; // Size of a square in pixels
 
   if (!fromSq || !toSq) return;
 
   const piece = fromSq.querySelector(".piece");
   if (!piece) return;
 
-  // Create a floating clone for animation
+  // 1. Calculate Start and End positions (in pixels, relative to the board)
+  const x_start = from.c * SQUARE_SIZE;
+  const y_start = from.r * SQUARE_SIZE;
+  const x_end = to.c * SQUARE_SIZE;
+  const y_end = to.r * SQUARE_SIZE;
+
+  // 2. Create a floating clone for animation
   const img = piece.querySelector("img");
   const floating = piece.cloneNode(true);
-  floating.style.position = "absolute";
   
-  // Get the size of the piece image for the floating clone
-  const pieceWidth = img ? img.getBoundingClientRect().width : 70;
-  const pieceHeight = img ? img.getBoundingClientRect().height : 70;
-
-  floating.style.width = `${pieceWidth}px`;
-  floating.style.height = `${pieceHeight}px`;
-
-  // FIX: Use the square's logical (non-rotated) position for animation start.
-  const startLeft = fromSq.style.left;
-  const startTop = fromSq.style.top;
-  floating.style.left = startLeft;
-  floating.style.top = startTop;
-
-  // FIX: Counter-rotate the floating piece if the board is flipped to keep it upright during animation.
-  if (boardEl.classList.contains("flipped")) {
-    floating.style.transform = 'rotate(-180deg)';
-  }
-
+  // 3. Apply styles for floating piece
+  floating.style.position = "absolute";
   floating.style.margin = "0";
   floating.style.zIndex = 9999;
   floating.style.pointerEvents = "none";
-  floating.style.transition = "all 160ms ease";
+  
+  // Set the CSS transition property for transform
+  floating.style.transition = "transform 160ms cubic-bezier(.22,.9,.28,1)";
+
+  // Set initial position using transform: translate(). This is the starting point.
+  let startTransform = `translate(${x_start}px, ${y_start}px)`;
+  
+  // Counter-rotate the piece if the board is flipped (to keep the piece upright)
+  if (boardEl.classList.contains("flipped")) {
+    startTransform += " rotate(-180deg)";
+  }
+  
+  floating.style.transform = startTransform;
+
+  // Set initial piece dimensions for the clone
+  const pieceWidth = img ? img.getBoundingClientRect().width : SQUARE_SIZE;
+  const pieceHeight = img ? img.getBoundingClientRect().height : SQUARE_SIZE;
+  floating.style.width = `${pieceWidth}px`;
+  floating.style.height = `${pieceHeight}px`;
+
+  // Append to the board container (the origin for absolute positioning)
   boardEl.appendChild(floating); 
 
-  // Remove original immediately so target square is free (prevents blocking)
+  // 4. Remove original immediately so target square is free
   piece.remove(); 
 
-  // Handle captures
+  // 5. Handle captures (removed from DOM before animation)
   if (mvResult && mvResult.captured) {
     // regular capture: remove piece in target square
     const cap = toSq.querySelector(".piece");
@@ -383,37 +392,19 @@ function movePieceDOM(from, to, mvResult) {
     }
   }
 
-  // Compute target coordinates for floating (relative to board)
-  const targetLeft = toSq.style.left; // FIX: Use target square's logical position
-  const targetTop = toSq.style.top;   // FIX: Use target square's logical position
-
-  // Special: castling - move rook DOM too
-  let rookMove = null;
-  if (mvResult && mvResult.flags) {
-    if (mvResult.flags.includes("k")) {
-      // king-side: rook from col7 to col5
-      rookMove = {
-        from: { r: from.r, c: 7 },
-        to:   { r: from.r, c: 5 }
-      };
-    } else if (mvResult.flags.includes("q")) {
-      // queen-side: rook from col0 to col3
-      rookMove = {
-        from: { r: from.r, c: 0 },
-        to:   { r: from.r, c: 3 }
-      };
-    }
-  }
-
-  // Start animation (move floating to target)
+  // 6. Start animation (move floating to target)
   requestAnimationFrame(() => {
-    floating.style.left = targetLeft;
-    floating.style.top = targetTop;
+    let targetTransform = `translate(${x_end}px, ${y_end}px)`;
+    if (boardEl.classList.contains("flipped")) {
+        targetTransform += " rotate(-180deg)";
+    }
+    // This style change triggers the smooth CSS transition
+    floating.style.transform = targetTransform;
   });
 
-  // After animation, append piece (floating) into toSq and reattach events
+  // 7. After animation, perform cleanup and final DOM update
   setTimeout(() => {
-    // If there was a promotion (mvResult.promotion) replace the image
+    // Promotion logic (modified to use the floating element)
     if (mvResult && mvResult.promotion) {
       const imgEl = floating.querySelector("img");
       if (imgEl) {
@@ -422,30 +413,45 @@ function movePieceDOM(from, to, mvResult) {
       }
     }
 
-    // reset floating styles and append to target cell
+    // Reset styles and append to target cell (it will inherit the piece's absolute positioning of left:0, top:0 relative to the square)
     floating.style.position = "";
-    floating.style.left = "";
-    floating.style.top = "";
+    floating.style.transform = ""; 
+    floating.style.transition = ""; 
     floating.style.width = "";
     floating.style.height = "";
     floating.style.zIndex = "";
     floating.style.pointerEvents = "";
-    floating.style.transition = "";
-    // FIX: Clear the transform that was added for animation
-    floating.style.transform = ''; 
+    
+    // Append the piece to its final square
     toSq.appendChild(floating); 
 
-    // reattach events on moved piece
+    // Reattach events on the moved piece
     attachPieceEvents(floating, to.r, to.c);
 
     // handle rook move for castling (move rook DOM to correct square)
+    let rookMove = null;
+    if (mvResult && mvResult.flags) {
+      if (mvResult.flags.includes("k")) {
+        // king-side: rook from col7 to col5
+        rookMove = {
+          from: { r: from.r, c: 7 },
+          to:   { r: from.r, c: 5 }
+        };
+      } else if (mvResult.flags.includes("q")) {
+        // queen-side: rook from col0 to col3
+        rookMove = {
+          from: { r: from.r, c: 0 },
+          to:   { r: from.r, c: 3 }
+        };
+      }
+    }
+    
     if (rookMove) {
       const rookFromSq = document.querySelector(`.square[data-row='${rookMove.from.r}'][data-col='${rookMove.from.c}']`);
       const rookToSq = document.querySelector(`.square[data-row='${rookMove.to.r}'][data-col='${rookMove.to.c}']`);
       if (rookFromSq && rookToSq) {
         const rookPiece = rookFromSq.querySelector(".piece");
         if (rookPiece) {
-          // move rook instantly (we could animate similarly if wanted)
           rookToSq.appendChild(rookPiece);
           attachPieceEvents(rookPiece, rookMove.to.r, rookMove.to.c);
         }

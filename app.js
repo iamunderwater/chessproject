@@ -324,53 +324,50 @@ socket.data.currentRoom = roomId;
 
   // ---------------- Move handler per room
   socket.on("move", (data) => {
-  const roomId = socket.data.currentRoom || data.roomId;
-  if (!roomId || !rooms[roomId]) return;
+    // data should include roomId and move object
+    // But older clients might send move without roomId. We handle both.
+    try {
+      const roomId = socket.data.currentRoom || data.roomId;
+      if (!roomId || !rooms[roomId]) return;
 
-  const room = rooms[roomId];
-  const mv = data.move;
+      const room = rooms[roomId];
+      const mv = data.move || data; // support both shapes
+      if (!mv || !mv.from || !mv.to) return;
 
-  const turn = room.chess.turn(); // 'w' or 'b'
+      // Verify that the socket is allowed to move (owner of color)
+      const turn = room.chess.turn(); // 'w' or 'b'
+      if ((turn === "w" && socket.id !== room.white) || (turn === "b" && socket.id !== room.black)) {
+        // not this player's turn
+        return;
+      }
 
-  // Verify mover
-  if ((turn === "w" && socket.id !== room.white) ||
-      (turn === "b" && socket.id !== room.black)) {
-    return; // not player's turn
-  }
+      // attempt move
+      const result = room.chess.move(mv, { sloppy: true });
+      if (!result) return;
 
-  // Apply move
-  const result = room.chess.move(mv, { sloppy: true });
-  if (!result) return;
+      // broadcast move and boardstate & timers
+      io.to(roomId).emit("move", mv);
+      io.to(roomId).emit("boardstate", room.chess.fen());
+      io.to(roomId).emit("timers", room.timers);
 
-  const fen = room.chess.fen();
+      // restart timers safely
+      stopRoomTimer(roomId);
+      startRoomTimer(roomId);
 
-  // -----------------------------
-  // ✔ SEND ANIMATION ONLY TO MOVER
-  // -----------------------------
-  socket.emit("move", mv); // mover animates
-
-  // --------------------------------------------
-  // ✔ SEND STATIC BOARD UPDATE TO THE OPPONENT
-  // --------------------------------------------
-  socket.to(roomId).emit("boardstate", fen); // opponent snaps
-
-  // timers
-  io.to(roomId).emit("timers", room.timers);
-
-  // restart timers
-  stopRoomTimer(roomId);
-  startRoomTimer(roomId);
-
-  // gameover
-  if (room.chess.isGameOver()) {
-    stopRoomTimer(roomId);
-    let winner = "Draw";
-    if (room.chess.isCheckmate()) {
-      winner = room.chess.turn() === "w" ? "Black" : "White";
+      // check game over
+      if (room.chess.isGameOver()) {
+        stopRoomTimer(roomId);
+        let winner = "Draw";
+        if (room.chess.isCheckmate()) {
+          winner = room.chess.turn() === "w" ? "Black" : "White";
+        }
+        io.to(roomId).emit("gameover", winner);
+      }
+    } catch (err) {
+      console.log("Move error:", err && err.message);
     }
-    io.to(roomId).emit("gameover", winner);
-  }
-});
+  });
+
   // client may emit move as { roomId, move: {from,to} } or simply move object
   // To be safe, above we try both shapes.
 

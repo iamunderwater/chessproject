@@ -172,9 +172,11 @@ function attachPieceEvents(piece, r, c) {
     };
   }, { passive: false });
 
+  // ---- FIXED TOUCH END ----
   finalPiece.addEventListener("touchend", e => {
     if (!touchDrag.active) return;
     e.preventDefault();
+    e.stopPropagation(); // Prevent event from bubbling to the square
 
     let target = touchDrag.lastTargetSquare;
     if (!target) {
@@ -191,9 +193,17 @@ function attachPieceEvents(piece, r, c) {
 
     if (touchDrag.floating) touchDrag.floating.remove();
 
-    if (target) {
+    // Check if the user actually dragged to a DIFFERENT square
+    const isMove = target && (target.row !== touchDrag.startSquare.row || target.col !== touchDrag.startSquare.col);
+
+    if (isMove) {
       handleMove(touchDrag.startSquare, target);
+      // Clear highlights only if a move attempt was made
+      clearHighlights();
+      clearSelectionUI();
     }
+    // If it was a TAP (target == startSquare or null), we keep the highlights
+    // so the user can then tap a target square.
 
     touchDrag = {
       active: false,
@@ -201,12 +211,12 @@ function attachPieceEvents(piece, r, c) {
       floating: null,
       lastTargetSquare: null
     };
-
-    clearHighlights();
   }, { passive: false });
 
-  // ---- CLICK SELECT ----
-  finalPiece.addEventListener("click", () => {
+  // ---- CLICK SELECT (Fixed Bubbling) ----
+  finalPiece.addEventListener("click", (e) => {
+    e.stopPropagation(); // Prevent event from bubbling to the square
+    
     const sq = chess.board()[r] && chess.board()[r][c];
     if (!sq || role !== sq.color) return;
 

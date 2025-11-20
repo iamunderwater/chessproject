@@ -86,64 +86,80 @@ function clearSelectionUI() {
 function attachPieceEvents(piece, r, c) {
   // remove previous handlers to avoid duplicates
   piece.replaceWith(piece.cloneNode(true));
-  const newPiece = piece.parentNode.querySelector(".piece"); // Safety select
-  const finalPiece = newPiece || piece;
+  const newPiece = piece.parentNode
+    ? piece.parentNode.querySelector(".piece:last-child") || piece
+    : piece;
   
+  // Select the square this piece is on
   const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
+  const finalPiece = cell ? cell.querySelector(".piece") : newPiece;
   if (!finalPiece) return;
 
   // mark draggable depending on role
   finalPiece.draggable = role && chess.board()[r] && chess.board()[r][c] ? (role === chess.board()[r][c].color) : false;
 
-  // ---- DRAG START ----
+  // ---- DESKTOP DRAG START (Restored Original Logic) ----
   finalPiece.addEventListener("dragstart", e => {
     if (!finalPiece.draggable) return;
     dragged = finalPiece;
     source = { row: r, col: c };
     e.dataTransfer.setData("text/plain", "");
-    
-    // Optional: Hide ghost image or set custom one
-    setTimeout(() => finalPiece.classList.add("dragging"), 0);
+
+    // custom drag image (Your original code restored)
+    const img = finalPiece.querySelector("img");
+    if (img) {
+      const dragImg = img.cloneNode(true);
+      dragImg.style.position = "absolute";
+      dragImg.style.top = "-9999px";
+      document.body.appendChild(dragImg);
+      const w = dragImg.width || 70;
+      const h = dragImg.height || 70;
+      e.dataTransfer.setDragImage(dragImg, w / 2, h / 2);
+      setTimeout(() => {
+        const clone = document.querySelector("body > img[style*='-9999px']");
+        if (clone) clone.remove();
+      }, 1000);
+    }
+
+    // Highlight the SQUARE (yellow), not the piece
     highlightMoves(r, c);
+    finalPiece.classList.add("dragging");
   });
 
   finalPiece.addEventListener("dragend", () => {
     dragged = null;
     source = null;
     finalPiece.classList.remove("dragging");
-    clearHighlights();
+    clearHighlights(); // Clears dots and yellow square
   });
 
-  // ---- TOUCH START ----
+  // ---- TOUCH (mobile) ----
   finalPiece.addEventListener("touchstart", e => {
-    const sq = chess.board()[r][c];
-    if (!sq || role !== sq.color) return; // Don't drag opponent pieces
-    
     e.preventDefault();
-    e.stopPropagation(); // Stop bubbling so square doesn't clear select
+    e.stopPropagation(); // FIX: Stop bubbling to avoid immediate deselect
+
+    const sq = chess.board()[r] && chess.board()[r][c];
+    if (!sq || role !== sq.color) return;
 
     touchDrag.active = true;
     touchDrag.startSquare = { row: r, col: c };
     touchDrag.lastTargetSquare = null;
 
-    // Create floating ghost
+    // Your original touch floating logic
     const img = finalPiece.querySelector("img");
     const floating = img.cloneNode(true);
     floating.style.position = "fixed";
+    floating.style.left = `${e.touches[0].clientX}px`;
+    floating.style.top = `${e.touches[0].clientY}px`;
+    floating.style.transform = "translate(-50%, -50%)";
     floating.style.zIndex = 9999;
     floating.style.pointerEvents = "none";
     floating.classList.add("touch-floating");
-    
-    const t = e.touches[0];
-    floating.style.left = `${t.clientX}px`;
-    floating.style.top = `${t.clientY}px`;
-    floating.style.transform = "translate(-50%, -50%)";
-    
     document.body.appendChild(floating);
     touchDrag.floating = floating;
 
-    highlightMoves(r, c);
-    selectedSource = { row: r, col: c }; // Set selection on touch
+    highlightMoves(r, c); // Highlight Square + Dots
+    selectedSource = { row: r, col: c }; // Set selection state
   }, { passive: false });
 
   finalPiece.addEventListener("touchmove", e => {
@@ -154,51 +170,71 @@ function attachPieceEvents(piece, r, c) {
     touchDrag.floating.style.top = `${t.clientY}px`;
 
     const el = document.elementFromPoint(t.clientX, t.clientY);
-    const sqEl = el && el.closest(".square");
-    if (sqEl) {
-      touchDrag.lastTargetSquare = {
-        row: parseInt(sqEl.dataset.row),
-        col: parseInt(sqEl.dataset.col)
-      };
-    } else {
+    if (!el) return;
+    const sqEl = el.closest(".square");
+    if (!sqEl) {
       touchDrag.lastTargetSquare = null;
+      return;
     }
+    touchDrag.lastTargetSquare = {
+      row: parseInt(sqEl.dataset.row),
+      col: parseInt(sqEl.dataset.col)
+    };
   }, { passive: false });
 
   finalPiece.addEventListener("touchend", e => {
     if (!touchDrag.active) return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); // FIX: Stop bubbling
+
+    let target = touchDrag.lastTargetSquare;
+    if (!target) {
+      const t = e.changedTouches[0];
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const sqEl = el && el.closest(".square");
+      if (sqEl) {
+        target = {
+          row: parseInt(sqEl.dataset.row),
+          col: parseInt(sqEl.dataset.col)
+        };
+      }
+    }
 
     if (touchDrag.floating) touchDrag.floating.remove();
 
-    const target = touchDrag.lastTargetSquare;
-    // If moved to a NEW square
+    // Check if moved to different square
     if (target && (target.row !== touchDrag.startSquare.row || target.col !== touchDrag.startSquare.col)) {
       handleMove(touchDrag.startSquare, target);
       clearSelectionUI();
     }
-    // If tapped (same square), keep highlight.
+    
+    // If tapped (same square), we do nothing here (keep highlights)
 
-    touchDrag = { active: false, startSquare: null, floating: null, lastTargetSquare: null };
+    touchDrag = {
+      active: false,
+      startSquare: null,
+      floating: null,
+      lastTargetSquare: null
+    };
   }, { passive: false });
 
-  // ---- CLICK (TAP) ----
+  // ---- CLICK SELECT (Fixed for Bubble Issue) ----
   finalPiece.addEventListener("click", (e) => {
-    const sq = chess.board()[r][c];
+    const sq = chess.board()[r] && chess.board()[r][c];
     
-    // Only handle click if it is OUR piece (Selecting).
-    // If it is opponent's piece, let event bubble to square to handle Capture.
+    // Only stop propagation if we are selecting our own piece
     if (sq && role === sq.color) {
       e.stopPropagation(); 
-      
+
       if (selectedSource && selectedSource.row === r && selectedSource.col === c) {
         clearSelectionUI();
       } else {
+        clearSelectionUI();
         selectedSource = { row: r, col: c };
-        highlightMoves(r, c);
+        highlightMoves(r, c); // Highlights square yellow
       }
     }
+    // If it's an opponent's piece, let the event bubble to the square (Capture logic)
   });
 }
 

@@ -168,7 +168,7 @@ socket.on("joinRoom", data => {
     socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
 
     if (room.black) {
-      startRoomTimer(roomId);
+     // startRoomTimer(roomId);
       io.to(roomId).emit("boardstate", room.chess.fen());
       io.to(roomId).emit("timers", room.timers);
     }
@@ -180,7 +180,7 @@ socket.on("joinRoom", data => {
     socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
 
     if (room.white) {
-      startRoomTimer(roomId);
+     // startRoomTimer(roomId);
       io.to(roomId).emit("boardstate", room.chess.fen());
       io.to(roomId).emit("timers", room.timers);
     }
@@ -213,7 +213,7 @@ socket.on("joinRoom", data => {
     io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
     io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
 
-    startRoomTimer(roomId);
+    //startRoomTimer(roomId);
     io.to(roomId).emit("boardstate", room.chess.fen());
     io.to(roomId).emit("timers", room.timers);
   }

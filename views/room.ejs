@@ -30,21 +30,21 @@
     /* >>> THIS IS THE FINAL, CLEAN, NON-CONFLICTING VERSION <<< */
 
     .chessboard {
-      width: 640px;
-      height: 640px;
+      width: min(90vw, 640px);
+      aspect-ratio: 1/1;
       position: relative;
       overflow: visible;
       box-shadow: 0 0 20px #333;
       border-radius: 6px;
       transition: transform .4s;
       display: block;
-      /* IMPORTANT: NOT GRID */
+      margin: 0 auto;
     }
 
     /* MAKE EACH SQUARE ABSOLUTE INSIDE BOARD */
     .square {
-      width: 80px;
-      height: 80px;
+      width: 12.5%;
+      height: 12.5%;
       position: absolute;
       /* REQUIRED for smooth animation */
       display: flex;
@@ -67,10 +67,8 @@
       left: 0;
       top: 0;
 
-      width: 80px;
-      /* THE FIX */
-      height: 80px;
-      /* THE FIX */
+      width: 100%;
+      height: 100%;
 
       display: flex;
       align-items: center;
@@ -92,8 +90,8 @@
 
     /* Piece image */
     .piece-img {
-      width: 70px;
-      height: 70px;
+      width: 90%;
+      height: 90%;
       pointer-events: none;
       user-select: none;
     }
@@ -267,6 +265,78 @@
       padding: 30px 50px;
       border-radius: 15px;
       text-align: center;
+    }
+
+    /* ---------------- MOBILE / RESPONSIVE ---------------- */
+    @media (max-width: 800px) {
+      body {
+        padding: 10px;
+        justify-content: flex-start;
+      }
+
+      .board-wrapper {
+        width: 100%;
+        max-width: 640px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .chessboard {
+        order: 2;
+        /* Board in middle */
+      }
+
+      /* Timers */
+      .side-timer {
+        position: static;
+        width: 100%;
+        max-width: 300px;
+        margin: 5px 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 40px;
+        font-size: 20px;
+      }
+
+      #top-timer {
+        order: 1;
+        margin-bottom: 10px;
+      }
+
+      #bottom-timer {
+        order: 3;
+        margin-top: 10px;
+      }
+
+      /* Buttons */
+      .side-buttons {
+        position: static;
+        order: 4;
+        flex-direction: row;
+        width: 100%;
+        justify-content: center;
+        margin-top: 15px;
+        flex-wrap: wrap;
+      }
+
+      .side-btn {
+        width: auto;
+        padding: 10px 20px;
+        font-size: 16px;
+      }
+
+      /* Confirm boxes need to be positioned relative to screen or buttons */
+      .confirm-box {
+        right: auto;
+        left: 50%;
+        transform: translateX(-50%);
+        top: -80px;
+        /* Pop up above buttons */
+        width: 200px;
+        z-index: 20;
+      }
     }
   </style>
 </head>

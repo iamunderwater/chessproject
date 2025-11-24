@@ -418,7 +418,8 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.pointerEvents = "none";
 
   // Set the CSS transition property for transform
-  floating.style.transition = "transform 80ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+  // INCREASED to 100ms for smoother frame pacing
+  floating.style.transition = "transform 100ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
   // Set initial position using transform: translate(). This is the starting point.
   let startTransform = `translate(${x_start}px, ${y_start}px)`;
@@ -462,6 +463,10 @@ function movePieceDOM(from, to, mvResult) {
 
   // 6. Start animation (move floating to target)
   requestAnimationFrame(() => {
+    // FORCE REFLOW: This ensures the browser registers the 'start' position
+    // before we set the 'end' position. Crucial for smooth animation.
+    void floating.offsetWidth;
+
     let targetTransform = `translate(${x_end}px, ${y_end}px)`;
     if (boardEl.classList.contains("flipped")) {
       targetTransform += " rotate(-180deg)";
@@ -471,7 +476,8 @@ function movePieceDOM(from, to, mvResult) {
   });
 
   // 7. After animation, perform cleanup and final DOM update
-  setTimeout(() => {
+  // USE transitionend for perfect timing (no more setTimeout desync)
+  const onTransitionEnd = () => {
     // Promotion logic (modified to use the floating element)
     if (mvResult && mvResult.promotion) {
       const imgEl = floating.querySelector("img");
@@ -529,7 +535,12 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 85);
+
+    // Cleanup listener
+    floating.removeEventListener("transitionend", onTransitionEnd);
+  };
+
+  floating.addEventListener("transitionend", onTransitionEnd);
 }
 
 // ---------------- HANDLE MOVES ----------------

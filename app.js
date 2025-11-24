@@ -53,13 +53,6 @@ function createRoom(roomId) {
 function startRoomTimer(roomId) {
   const room = rooms[roomId];
   if (!room || room.isTimerRunning) return;
-  
-  // Don't start timer if game is over
-  if (room.chess.isGameOver()) return;
-  
-  // Don't start timer if both players aren't present
-  if (!room.white || !room.black) return;
-  
   room.isTimerRunning = true;
 
   if (room.timerInterval) {
@@ -67,26 +60,13 @@ function startRoomTimer(roomId) {
   }
 
   room.timerInterval = setInterval(() => {
-    // Check if room still exists
-    if (!rooms[roomId]) {
-      clearInterval(room.timerInterval);
-      return;
-    }
-    
     const turn = room.chess.turn(); // 'w' or 'b'
-    if (!turn || room.chess.isGameOver()) {
-      clearInterval(room.timerInterval);
-      room.timerInterval = null;
-      room.isTimerRunning = false;
-      return;
-    }
+    if (!turn) return;
 
-    if (room.timers[turn] > 0) {
-      room.timers[turn]--;
-    }
+    if (room.timers[turn] > 0) room.timers[turn]--;
 
     // broadcast timers to room
-    io.to(roomId).emit("timers", { ...room.timers });
+    io.to(roomId).emit("timers", room.timers);
 
     if (room.timers[turn] <= 0) {
       clearInterval(room.timerInterval);
@@ -161,42 +141,17 @@ io.on("connection", (socket) => {
     } catch (e) {}
   }
 
-  // ---------------- Utility to get base URL (for room link) -------------
-  function getBaseUrl(req) {
-    // req may be undefined when called from socket; try to derive from socket.request
-    const r = req || socket.request;
-    if (!r) return serverAddress();
-    const protocol = r.headers && r.headers["x-forwarded-proto"] ? r.headers["x-forwarded-proto"] : "http";
-    const host = r.headers && r.headers.host ? r.headers.host : `localhost:${process.env.PORT || 3000}`;
-    return `${protocol}://${host}`;
-  }
-
-  function serverAddress() {
-    // fallback
-    return `http://localhost:${process.env.PORT || 3000}`;
-  }
-
   // ---------------- Join an existing room (from room page)
   // client emits: socket.emit('joinRoom', roomId)
-  socket.on("joinRoom", data => {
+socket.on("joinRoom", data => {
   let roomId, forcedRole;
 
   // support both: joinRoom("ABCDE") and joinRoom({ roomId: "ABCDE", role: "w" })
   if (typeof data === "string") {
-    roomId = String(data).toUpperCase().trim();
-  } else if (data && typeof data === "object") {
-    roomId = String(data.roomId || "").toUpperCase().trim();
-    forcedRole = data.role; // "w" or "b" or null
+    roomId = data.toUpperCase();
   } else {
-    console.log("Invalid joinRoom data:", data);
-    return;
-  }
-
-  // Validate roomId format (6 alphanumeric characters)
-  if (!roomId || !/^[A-Z0-9]{1,10}$/.test(roomId)) {
-    console.log("Invalid roomId format:", roomId);
-    socket.emit("error", { message: "Invalid room ID" });
-    return;
+    roomId = data.roomId.toUpperCase();
+    forcedRole = data.role; // "w" or "b" or null
   }
 
   if (!rooms[roomId]) createRoom(roomId);
@@ -213,7 +168,7 @@ io.on("connection", (socket) => {
     socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
 
     if (room.black) {
-      startRoomTimer(roomId);
+     // startRoomTimer(roomId);
       io.to(roomId).emit("boardstate", room.chess.fen());
       io.to(roomId).emit("timers", room.timers);
     }
@@ -225,7 +180,7 @@ io.on("connection", (socket) => {
     socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
 
     if (room.white) {
-      startRoomTimer(roomId);
+     // startRoomTimer(roomId);
       io.to(roomId).emit("boardstate", room.chess.fen());
       io.to(roomId).emit("timers", room.timers);
     }
@@ -245,11 +200,10 @@ io.on("connection", (socket) => {
     room.white = socket.id;
     socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
 
-      if (!room.black) {
-      const baseUrl = getBaseUrl(socket.request);
+    if (!room.black) {
       socket.emit("waiting", {
         text: "Waiting for your friend to join...",
-        link: `${baseUrl}/room/${roomId}`
+        link: `${getBaseUrl(socket.request)}/room/${roomId}`
       });
     }
   }
@@ -259,7 +213,7 @@ io.on("connection", (socket) => {
     io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
     io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
 
-    startRoomTimer(roomId);
+    //startRoomTimer(roomId);
     io.to(roomId).emit("boardstate", room.chess.fen());
     io.to(roomId).emit("timers", room.timers);
   }
@@ -270,20 +224,48 @@ io.on("connection", (socket) => {
     socket.emit("timers", room.timers);
   }
 
-  });
+});
 
+socket.on("resign", roomId => {
+  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  const room = rooms[roomId];
+  let winner = "";
+  if (socket.id === room.white) winner = "Black";
+  else if (socket.id === room.black) winner = "White";
+
+  io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
+  stopRoomTimer(roomId);
+});
+
+// ---------- DRAW OFFER ----------
+socket.on("offerDraw", roomId => {
+  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  const room = rooms[roomId];
+  const opponent =
+    socket.id === room.white ? room.black :
+    socket.id === room.black ? room.white : null;
+
+  if (opponent) io.to(opponent).emit("drawOffered");
+});
+
+// ---------- DRAW ACCEPT ----------
+socket.on("acceptDraw", roomId => {
+  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+
+  io.to(roomId).emit("gameover", "Draw");
+  stopRoomTimer(roomId);
+});
   // ---------------- Quick Play (enter queue)
   // client emits: socket.emit('enterQuickplay')
   socket.on("enterQuickplay", () => {
     // if already in queue, ignore
     if (quickWaiting && quickWaiting.socketId === socket.id) {
       socket.emit("info", { text: "Already searching..." });
-      return;
-    }
-
-    // If already in a room, don't allow quickplay
-    if (socket.data.currentRoom) {
-      socket.emit("info", { text: "Already in a game. Leave the room first." });
       return;
     }
 
@@ -308,17 +290,6 @@ io.on("connection", (socket) => {
       quickWaiting = { socketId: socket.id, createdAt: Date.now() };
       socket.data.isInQuickplay = true;
       socket.emit("looking", { text: "Looking for available players..." });
-      console.log("Quickplay: previous waiting disconnected, new waiting:", socket.id);
-      return;
-    }
-
-    // Double-check waiting socket isn't already in a room
-    if (waitingSocket.data.currentRoom) {
-      // Waiting socket is already in a room, replace with current
-      quickWaiting = { socketId: socket.id, createdAt: Date.now() };
-      socket.data.isInQuickplay = true;
-      socket.emit("looking", { text: "Looking for available players..." });
-      console.log("Quickplay: previous waiting in room, new waiting:", socket.id);
       return;
     }
 
@@ -332,12 +303,11 @@ io.on("connection", (socket) => {
 
     // both sockets should join socket.io room
     waitingSocket.join(roomId);
-    socket.join(roomId);
+socket.join(roomId);
 
-    waitingSocket.data.currentRoom = roomId;
-    socket.data.currentRoom = roomId;
-    
-    // clear quickWaiting BEFORE emitting matched (prevents race condition)
+waitingSocket.data.currentRoom = roomId;
+socket.data.currentRoom = roomId;
+    // clear quickWaiting
     quickWaiting = null;
     waitingSocket.data.isInQuickplay = false;
     socket.data.isInQuickplay = false;
@@ -345,6 +315,9 @@ io.on("connection", (socket) => {
     // Inform both clients to navigate to room URL (client will handle redirect)
     io.to(waitingSocketId).emit("matched", { roomId, role: "w" });
     io.to(socket.id).emit("matched", { roomId, role: "b" });
+
+    // send initial game state once they connect/join room page
+    // We'll still rely on 'joinRoom' from client once they load the /room/:id page to initialize fully.
 
     console.log(`Quickplay matched ${waitingSocketId} <> ${socket.id} -> room ${roomId}`);
   });
@@ -354,52 +327,23 @@ io.on("connection", (socket) => {
     // data should include roomId and move object
     // But older clients might send move without roomId. We handle both.
     try {
-      const roomId = (socket.data.currentRoom || data?.roomId || "").toString().toUpperCase();
-      if (!roomId || !rooms[roomId]) {
-        console.log("Move rejected: invalid room", roomId);
-        return;
-      }
+      const roomId = socket.data.currentRoom || data.roomId;
+      if (!roomId || !rooms[roomId]) return;
 
       const room = rooms[roomId];
-      
-      // Only allow players (not watchers) to move
-      if (socket.id !== room.white && socket.id !== room.black) {
-        console.log("Move rejected: not a player");
-        return;
-      }
-
-      const mv = data?.move || data; // support both shapes
-      if (!mv || typeof mv !== "object" || !mv.from || !mv.to) {
-        console.log("Move rejected: invalid move format");
-        return;
-      }
-
-      // Validate move format (should be like "e2" or "e4")
-      if (typeof mv.from !== "string" || typeof mv.to !== "string" || 
-          !/^[a-h][1-8]$/.test(mv.from) || !/^[a-h][1-8]$/.test(mv.to)) {
-        console.log("Move rejected: invalid square format");
-        return;
-      }
+      const mv = data.move || data; // support both shapes
+      if (!mv || !mv.from || !mv.to) return;
 
       // Verify that the socket is allowed to move (owner of color)
       const turn = room.chess.turn(); // 'w' or 'b'
       if ((turn === "w" && socket.id !== room.white) || (turn === "b" && socket.id !== room.black)) {
-        console.log("Move rejected: not player's turn");
-        return;
-      }
-
-      // Check if game is already over
-      if (room.chess.isGameOver()) {
-        console.log("Move rejected: game already over");
+        // not this player's turn
         return;
       }
 
       // attempt move
       const result = room.chess.move(mv, { sloppy: true });
-      if (!result) {
-        console.log("Move rejected: invalid chess move", mv);
-        return;
-      }
+      if (!result) return;
 
       // broadcast move and boardstate & timers
       io.to(roomId).emit("move", mv);
@@ -420,9 +364,7 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("gameover", winner);
       }
     } catch (err) {
-      console.error("Move error:", err?.message || err);
-      // Optionally notify the client
-      socket.emit("error", { message: "Invalid move" });
+      console.log("Move error:", err && err.message);
     }
   });
 
@@ -434,10 +376,6 @@ io.on("connection", (socket) => {
     roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
     if (!rooms[roomId]) return;
     const room = rooms[roomId];
-    
-    // Only allow players (not watchers) to reset
-    if (socket.id !== room.white && socket.id !== room.black) return;
-    
     room.chess = new Chess();
     room.timers = { w: 300, b: 300 };
     stopRoomTimer(roomId);
@@ -445,61 +383,43 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("timers", room.timers);
   });
 
-  // ---------- RESIGN ----------
   socket.on("resign", roomId => {
-    roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
-    if (!rooms[roomId]) return;
-    const room = rooms[roomId];
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
+  const room = rooms[roomId];
 
-    // Only allow players (not watchers) to resign
-    if (socket.id !== room.white && socket.id !== room.black) return;
+  const winner = socket.id === room.white ? "Black" : "White";
+  io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
+  stopRoomTimer(roomId);
+});
 
-    const winner = socket.id === room.white ? "Black" : "White";
-    io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
-    stopRoomTimer(roomId);
-  });
+socket.on("offerDraw", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
 
-  // ---------- DRAW OFFER ----------
-  socket.on("offerDraw", roomId => {
-    roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
-    if (!rooms[roomId]) return;
+  const room = rooms[roomId];
+  const opp = socket.id === room.white ? room.black : room.white;
 
-    const room = rooms[roomId];
-    // Only allow players (not watchers) to offer draw
-    if (socket.id !== room.white && socket.id !== room.black) return;
+  if (opp) io.to(opp).emit("drawOffered");
+});
 
-    const opponent =
-      socket.id === room.white ? room.black :
-      socket.id === room.black ? room.white : null;
+socket.on("acceptDraw", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
 
-    if (opponent) io.to(opponent).emit("drawOffered");
-  });
+  io.to(roomId).emit("gameover", "Draw");
+  stopRoomTimer(roomId);
+});
 
-  // ---------- DRAW ACCEPT ----------
-  socket.on("acceptDraw", roomId => {
-    roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
-    if (!rooms[roomId]) return;
+socket.on("declineDraw", roomId => {
+  roomId = (roomId || socket.data.currentRoom).toUpperCase();
+  if (!rooms[roomId]) return;
 
-    const room = rooms[roomId];
-    // Only allow players (not watchers) to accept draw
-    if (socket.id !== room.white && socket.id !== room.black) return;
+  const room = rooms[roomId];
+  const opp = socket.id === room.white ? room.black : room.white;
 
-    io.to(roomId).emit("gameover", "Draw");
-    stopRoomTimer(roomId);
-  });
-
-  // ---------- DRAW DECLINE ----------
-  socket.on("declineDraw", roomId => {
-    roomId = String(roomId || socket.data.currentRoom || "").toUpperCase();
-    if (!rooms[roomId]) return;
-
-    const room = rooms[roomId];
-    // Only allow players (not watchers) to decline draw
-    if (socket.id !== room.white && socket.id !== room.black) return;
-
-    const opponent = socket.id === room.white ? room.black : room.white;
-    if (opponent) io.to(opponent).emit("drawDeclined");
-  });
+  if (opp) io.to(opp).emit("drawDeclined");
+});
 
   // ---------------- disconnect handling ----------------
   socket.on("disconnect", () => {
@@ -508,42 +428,48 @@ io.on("connection", (socket) => {
     // If in quickplay queue, remove
     if (quickWaiting && quickWaiting.socketId === socket.id) {
       quickWaiting = null;
-      console.log("Removed from quickplay queue:", socket.id);
     }
 
     // If the socket had a currentRoom, handle leaving
     const roomId = socket.data.currentRoom;
     if (roomId && rooms[roomId]) {
       const room = rooms[roomId];
-      let wasPlayer = false;
 
       // remove from white/black/watchers
       if (room.white === socket.id) {
         room.white = null;
-        wasPlayer = true;
       }
       if (room.black === socket.id) {
         room.black = null;
-        wasPlayer = true;
       }
-      if (room.watchers.has(socket.id)) {
-        room.watchers.delete(socket.id);
-      }
+      if (room.watchers.has(socket.id)) room.watchers.delete(socket.id);
 
-      // If a player left, stop timer and notify
-      if (wasPlayer) {
-        stopRoomTimer(roomId);
-        io.to(roomId).emit("info", { text: "A player left the game." });
-      }
-
+      // notify remaining sockets in room
+      io.to(roomId).emit("info", { text: "A player left the game." });
       // If both players left, clean up room
       if (!room.white && !room.black) {
+        // close timers & delete room
         stopRoomTimer(roomId);
         delete rooms[roomId];
         console.log(`Room ${roomId} deleted because both players left.`);
       }
     }
   });
+
+  // ---------------- Utility to get base URL (for room link) -------------
+  function getBaseUrl(req) {
+    // req may be undefined when called from socket; try to derive from socket.request
+    const r = req || socket.request;
+    if (!r) return `${serverAddress()}`;
+    const protocol = r.headers && r.headers["x-forwarded-proto"] ? r.headers["x-forwarded-proto"] : "http";
+    const host = r.headers && r.headers.host ? r.headers.host : `localhost:${process.env.PORT || 3000}`;
+    return `${protocol}://${host}`;
+  }
+
+  function serverAddress() {
+    // fallback
+    return `http://localhost:${process.env.PORT || 3000}`;
+  }
 });
 
 // -------------------- Tiny view for quickplay (server must have view quickplay.ejs) --------------------

@@ -159,6 +159,17 @@ io.on("connection", (socket) => {
 
     joinSocketRoom(roomId);
     socket.data.currentRoom = roomId;
+    
+    // =====================================
+    //  ZOMBIE CLEANUP (Self-Healing)
+    //  If the room thinks a socket is playing but that socket is gone, clear it.
+    // =====================================
+    if (room.white && !io.sockets.sockets.has(room.white)) {
+      room.white = null;
+    }
+    if (room.black && !io.sockets.sockets.has(room.black)) {
+      room.black = null;
+    }
 
     // =====================================
     //  QUICKPLAY FIX: respect forced roles (ONLY IF VACANT)

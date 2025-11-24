@@ -1,8 +1,4 @@
 const socket = io();
-console.log("Chessgame.js loaded");
-socket.on("connect", () => {
-  console.log("Socket connected:", socket.id);
-});
 const chess = new Chess();
 
 // DOM references (some are assigned later during init)
@@ -249,7 +245,6 @@ function attachPieceEvents(piece, r, c) {
 
 // ---------------- BOARD RENDER ----------------
 function renderBoard() {
-  console.log("renderBoard called. boardEl:", boardEl);
   if (!boardEl) return;
   const board = chess.board();
 
@@ -401,7 +396,7 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.pointerEvents = "none";
 
   // Set the CSS transition property for transform
-  floating.style.transition = "transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+  floating.style.transition = "transform 80ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
   // Set initial position using transform: translate(). This is the starting point.
   let startTransform = `translate(${x_start}px, ${y_start}px)`;
@@ -506,7 +501,9 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 200);
+  }
+    }
+  }, 85);
 }
 
 // ---------------- HANDLE MOVES ----------------
@@ -568,7 +565,6 @@ socket.on("waiting", d => {
 
 // -------- INITIAL SETUP --------
 socket.on("init", data => {
-  console.log("Received init:", data);
   sessionStorage.removeItem("quickplayRole");
   role = data.role;
 

@@ -501,8 +501,6 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }
-    }
   }, 85);
 }
 

@@ -109,6 +109,14 @@ function attachPieceEvents(piece, r, c) {
   const isMyPiece = role && boardSq && (role === boardSq.color);
   finalPiece.draggable = isMyPiece;
 
+  // FIX: If it's not my piece, make it transparent to clicks/drops so we can capture it easily
+  // by dropping onto the square underneath.
+  if (!isMyPiece) {
+    finalPiece.style.pointerEvents = "none";
+  } else {
+    finalPiece.style.pointerEvents = "auto";
+  }
+
   // ---- DESKTOP DRAG START ----
   finalPiece.addEventListener("dragstart", e => {
     if (!finalPiece.draggable) return;
@@ -324,31 +332,44 @@ function updateBoardPieces(board) {
       const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
       if (!cell) return;
 
-      const existingPiece = cell.querySelector(".piece");
+      const existingPieces = cell.querySelectorAll(".piece");
 
       // Case 1: Empty square in new state
       if (!sq) {
-        if (existingPiece) existingPiece.remove();
+        existingPieces.forEach(p => p.remove());
         return;
       }
 
       // Case 2: Piece exists in new state
       // Check if existing piece matches
-      if (existingPiece) {
-        const img = existingPiece.querySelector("img");
-        const currentSrc = img ? img.getAttribute("src") : "";
-        const newSrc = pieceImage(sq);
+      if (existingPieces.length > 0) {
+        // If we have duplicates, just clear all and recreate to be safe
+        if (existingPieces.length > 1) {
+          existingPieces.forEach(p => p.remove());
+        } else {
+          const existingPiece = existingPieces[0];
+          const img = existingPiece.querySelector("img");
+          const currentSrc = img ? img.getAttribute("src") : "";
+          const newSrc = pieceImage(sq);
 
-        // If same piece (color & type), do nothing
-        if (currentSrc === newSrc) {
-          // Ensure draggable is correct (in case turn changed or role changed, though usually piece change implies that)
-          const isMyPiece = role && sq.color === role;
-          existingPiece.draggable = isMyPiece;
-          return;
+          // If same piece (color & type), do nothing
+          if (currentSrc === newSrc) {
+            // Ensure draggable is correct (in case turn changed or role changed, though usually piece change implies that)
+            const isMyPiece = role && sq.color === role;
+            existingPiece.draggable = isMyPiece;
+
+            // FIX: Ensure pointer-events is correct (in case it was set to none for opponent)
+            if (!isMyPiece) {
+              existingPiece.style.pointerEvents = "none";
+            } else {
+              existingPiece.style.pointerEvents = "auto";
+            }
+            return;
+          }
+
+          // If different piece, remove old
+          existingPiece.remove();
         }
-
-        // If different piece, remove old and add new (e.g. capture/promotion)
-        existingPiece.remove();
       }
 
       // Add new piece
@@ -390,6 +411,7 @@ function movePieceDOM(from, to, mvResult) {
   const floating = piece.cloneNode(true);
 
   // 3. Apply styles for floating piece
+  floating.classList.remove("dragging"); // FIX: Ensure it's visible!
   floating.style.position = "absolute";
   floating.style.margin = "0";
   floating.style.zIndex = 9999;
@@ -418,7 +440,9 @@ function movePieceDOM(from, to, mvResult) {
   boardEl.appendChild(floating);
 
   // 4. Remove original immediately so target square is free
-  piece.remove();
+  // FIX: Remove ALL pieces from source square to prevent ghosts
+  const allFromPieces = fromSq.querySelectorAll(".piece");
+  allFromPieces.forEach(p => p.remove());
 
   // 5. Handle captures (removed from DOM before animation)
   if (mvResult && mvResult.captured) {
@@ -467,6 +491,10 @@ function movePieceDOM(from, to, mvResult) {
     floating.style.pointerEvents = "";
 
     // Append the piece to its final square
+    // FIX: Clear target square of any ghosts before appending
+    const allToPieces = toSq.querySelectorAll(".piece");
+    allToPieces.forEach(p => p.remove());
+
     toSq.appendChild(floating);
 
     // Reattach events on the moved piece

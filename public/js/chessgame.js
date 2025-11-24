@@ -49,7 +49,7 @@ function clearHighlights() {
     sq.classList.remove("dot");
     sq.classList.remove("capture");
   });
-  
+
   // Remove yellow highlight from all squares
   document.querySelectorAll(".square.selected").forEach(sq => {
     sq.classList.remove("selected");
@@ -58,7 +58,7 @@ function clearHighlights() {
 
 function highlightMoves(row, col) {
   clearHighlights();
-  
+
   // Highlight the clicked/dragged square in yellow
   const sourceSq = document.querySelector(`.square[data-row='${row}'][data-col='${col}']`);
   if (sourceSq) sourceSq.classList.add("selected");
@@ -89,7 +89,7 @@ function attachPieceEvents(piece, r, c) {
   const newPiece = piece.parentNode
     ? piece.parentNode.querySelector(".piece:last-child") || piece
     : piece;
-  
+
   // Select the square this piece is on
   const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
   const finalPiece = cell ? cell.querySelector(".piece") : newPiece;
@@ -207,7 +207,7 @@ function attachPieceEvents(piece, r, c) {
       handleMove(touchDrag.startSquare, target);
       clearSelectionUI();
     }
-    
+
     // If tapped (same square), we do nothing here (keep highlights)
 
     touchDrag = {
@@ -221,10 +221,10 @@ function attachPieceEvents(piece, r, c) {
   // ---- CLICK SELECT (Fixed for Bubble Issue) ----
   finalPiece.addEventListener("click", (e) => {
     const sq = chess.board()[r] && chess.board()[r][c];
-    
+
     // Only stop propagation if we are selecting our own piece
     if (sq && role === sq.color) {
-      e.stopPropagation(); 
+      e.stopPropagation();
 
       if (selectedSource && selectedSource.row === r && selectedSource.col === c) {
         clearSelectionUI();
@@ -256,7 +256,7 @@ function renderBoard() {
         cell.dataset.col = c;
         cell.style.left = `${c * 80}px`;
         cell.style.top = `${r * 80}px`;
-         // keep cell relative so pieces (if any) can be inside
+        // keep cell relative so pieces (if any) can be inside
 
         // Tap-to-tap movement
         cell.addEventListener("click", () => {
@@ -313,17 +313,37 @@ function renderBoard() {
 }
 
 function updateBoardPieces(board) {
-  // Remove all current piece elements
-  document.querySelectorAll(".piece").forEach(p => p.remove());
-
-  // Recreate piece DOM in correct squares
   board.forEach((row, r) => {
     row.forEach((sq, c) => {
-      if (!sq) return;
-
       const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
       if (!cell) return;
 
+      const currentPiece = cell.querySelector(".piece");
+
+      // Case 1: Square should be empty
+      if (!sq) {
+        if (currentPiece) currentPiece.remove();
+        return;
+      }
+
+      // Case 2: Square has a piece
+      // Check if the current piece matches the new state
+      if (currentPiece) {
+        const img = currentPiece.querySelector("img");
+        const currentSrc = img ? img.getAttribute("src") : "";
+        const newSrc = pieceImage(sq);
+
+        // If src matches, it's the same piece type/color, so do nothing (optimization)
+        // We also check if it has the correct classes just in case
+        if (currentSrc === newSrc && currentPiece.classList.contains(sq.color === "w" ? "white" : "black")) {
+          return;
+        }
+
+        // If mismatch, remove old piece and let it recreate below
+        currentPiece.remove();
+      }
+
+      // Create new piece
       const piece = document.createElement("div");
       piece.classList.add("piece", sq.color === "w" ? "white" : "black");
 
@@ -343,7 +363,7 @@ function updateBoardPieces(board) {
 // ---------------- MOVE ANIMATION ----------------
 function movePieceDOM(from, to, mvResult) {
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
-  const toSq   = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
+  const toSq = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
   const SQUARE_SIZE = 80; // Size of a square in pixels
 
   if (!fromSq || !toSq) return;
@@ -360,24 +380,24 @@ function movePieceDOM(from, to, mvResult) {
   // 2. Create a floating clone for animation
   const img = piece.querySelector("img");
   const floating = piece.cloneNode(true);
-  
+
   // 3. Apply styles for floating piece
   floating.style.position = "absolute";
   floating.style.margin = "0";
   floating.style.zIndex = 9999;
   floating.style.pointerEvents = "none";
-  
+
   // Set the CSS transition property for transform
   floating.style.transition = "transform 160ms cubic-bezier(.22,.9,.28,1)";
 
   // Set initial position using transform: translate(). This is the starting point.
   let startTransform = `translate(${x_start}px, ${y_start}px)`;
-  
+
   // Counter-rotate the piece if the board is flipped (to keep the piece upright)
   if (boardEl.classList.contains("flipped")) {
     startTransform += " rotate(-180deg)";
   }
-  
+
   floating.style.transform = startTransform;
 
   // Set initial piece dimensions for the clone
@@ -387,10 +407,10 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.height = `${pieceHeight}px`;
 
   // Append to the board container (the origin for absolute positioning)
-  boardEl.appendChild(floating); 
+  boardEl.appendChild(floating);
 
   // 4. Remove original immediately so target square is free
-  piece.remove(); 
+  piece.remove();
 
   // 5. Handle captures (removed from DOM before animation)
   if (mvResult && mvResult.captured) {
@@ -412,7 +432,7 @@ function movePieceDOM(from, to, mvResult) {
   requestAnimationFrame(() => {
     let targetTransform = `translate(${x_end}px, ${y_end}px)`;
     if (boardEl.classList.contains("flipped")) {
-        targetTransform += " rotate(-180deg)";
+      targetTransform += " rotate(-180deg)";
     }
     // This style change triggers the smooth CSS transition
     floating.style.transform = targetTransform;
@@ -431,15 +451,15 @@ function movePieceDOM(from, to, mvResult) {
 
     // Reset styles and append to target cell (it will inherit the piece's absolute positioning of left:0, top:0 relative to the square)
     floating.style.position = "";
-    floating.style.transform = ""; 
-    floating.style.transition = ""; 
+    floating.style.transform = "";
+    floating.style.transition = "";
     floating.style.width = "";
     floating.style.height = "";
     floating.style.zIndex = "";
     floating.style.pointerEvents = "";
-    
+
     // Append the piece to its final square
-    toSq.appendChild(floating); 
+    toSq.appendChild(floating);
 
     // Reattach events on the moved piece
     attachPieceEvents(floating, to.r, to.c);
@@ -451,17 +471,17 @@ function movePieceDOM(from, to, mvResult) {
         // king-side: rook from col7 to col5
         rookMove = {
           from: { r: from.r, c: 7 },
-          to:   { r: from.r, c: 5 }
+          to: { r: from.r, c: 5 }
         };
       } else if (mvResult.flags.includes("q")) {
         // queen-side: rook from col0 to col3
         rookMove = {
           from: { r: from.r, c: 0 },
-          to:   { r: from.r, c: 3 }
+          to: { r: from.r, c: 3 }
         };
       }
     }
-    
+
     if (rookMove) {
       const rookFromSq = document.querySelector(`.square[data-row='${rookMove.from.r}'][data-col='${rookMove.from.c}']`);
       const rookToSq = document.querySelector(`.square[data-row='${rookMove.to.r}'][data-col='${rookMove.to.c}']`);
@@ -577,7 +597,7 @@ socket.on("init", data => {
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
   chess.load(fen);
-  renderBoard(); 
+  renderBoard();
   clearSelectionUI();
 });
 
@@ -702,7 +722,7 @@ socket.on("gameover", winner => {
     popupText.innerText = txt;
     popup.classList.add("show");
   } else {
-    try { alert(txt); } catch (e) {}
+    try { alert(txt); } catch (e) { }
   }
 
   if (endSound) endSound.play();

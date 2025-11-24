@@ -1,4 +1,8 @@
 const socket = io();
+console.log("Chessgame.js loaded");
+socket.on("connect", () => {
+  console.log("Socket connected:", socket.id);
+});
 const chess = new Chess();
 
 // DOM references (some are assigned later during init)
@@ -245,6 +249,7 @@ function attachPieceEvents(piece, r, c) {
 
 // ---------------- BOARD RENDER ----------------
 function renderBoard() {
+  console.log("renderBoard called. boardEl:", boardEl);
   if (!boardEl) return;
   const board = chess.board();
 
@@ -563,6 +568,7 @@ socket.on("waiting", d => {
 
 // -------- INITIAL SETUP --------
 socket.on("init", data => {
+  console.log("Received init:", data);
   sessionStorage.removeItem("quickplayRole");
   role = data.role;
 

@@ -259,8 +259,8 @@ function renderBoard() {
         cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
         cell.dataset.row = r;
         cell.dataset.col = c;
-        cell.style.left = `${c * 12.5}%`;
-        cell.style.top = `${r * 12.5}%`;
+        cell.style.left = `${c * 80}px`;
+        cell.style.top = `${r * 80}px`;
         // keep cell relative so pieces (if any) can be inside
 
         // Tap-to-tap movement
@@ -372,10 +372,7 @@ function updateBoardPieces(board) {
 function movePieceDOM(from, to, mvResult) {
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
   const toSq = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
-
-  // DYNAMIC SIZE: Calculate based on current board width
-  const boardWidth = boardEl.getBoundingClientRect().width;
-  const SQUARE_SIZE = boardWidth / 8;
+  const SQUARE_SIZE = 80; // Size of a square in pixels
 
   if (!fromSq || !toSq) return;
 
@@ -399,11 +396,7 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.pointerEvents = "none";
 
   // Set the CSS transition property for transform
-  floating.style.transition = "transform 80ms cubic-bezier(0.2, 0.8, 0.2, 1)";
-
-  // GHOST FIX: Hide any static piece that might appear in the target square
-  // (e.g. if boardstate update happens during animation)
-  toSq.classList.add("receiving-piece");
+  floating.style.transition = "transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
   // Set initial position using transform: translate(). This is the starting point.
   let startTransform = `translate(${x_start}px, ${y_start}px)`;
@@ -416,9 +409,10 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.transform = startTransform;
 
   // Set initial piece dimensions for the clone
-  // Use computed size to match the board
-  floating.style.width = `${SQUARE_SIZE}px`;
-  floating.style.height = `${SQUARE_SIZE}px`;
+  const pieceWidth = img ? img.getBoundingClientRect().width : SQUARE_SIZE;
+  const pieceHeight = img ? img.getBoundingClientRect().height : SQUARE_SIZE;
+  floating.style.width = `${pieceWidth}px`;
+  floating.style.height = `${pieceHeight}px`;
 
   // Append to the board container (the origin for absolute positioning)
   boardEl.appendChild(floating);
@@ -472,12 +466,6 @@ function movePieceDOM(from, to, mvResult) {
     floating.style.zIndex = "";
     floating.style.pointerEvents = "";
 
-    // GHOST FIX: Remove the hiding class
-    toSq.classList.remove("receiving-piece");
-
-    // Clear target square to ensure no duplicate static piece remains
-    toSq.innerHTML = "";
-
     // Append the piece to its final square
     toSq.appendChild(floating);
 
@@ -513,7 +501,7 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 80);
+  }, 200);
 }
 
 // ---------------- HANDLE MOVES ----------------

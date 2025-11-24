@@ -132,134 +132,137 @@ io.on("connection", (socket) => {
   function joinSocketRoom(roomId) {
     try {
       socket.join(roomId);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   function leaveSocketRoom(roomId) {
     try {
       socket.leave(roomId);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // ---------------- Join an existing room (from room page)
   // client emits: socket.emit('joinRoom', roomId)
-socket.on("joinRoom", data => {
-  let roomId, forcedRole;
+  socket.on("joinRoom", data => {
+    let roomId, forcedRole;
 
-  // support both: joinRoom("ABCDE") and joinRoom({ roomId: "ABCDE", role: "w" })
-  if (typeof data === "string") {
-    roomId = data.toUpperCase();
-  } else {
-    roomId = data.roomId.toUpperCase();
-    forcedRole = data.role; // "w" or "b" or null
-  }
+    // support both: joinRoom("ABCDE") and joinRoom({ roomId: "ABCDE", role: "w" })
+    if (typeof data === "string") {
+      roomId = data.toUpperCase();
+    } else {
+      roomId = data.roomId.toUpperCase();
+      forcedRole = data.role; // "w" or "b" or null
+    }
 
-  if (!rooms[roomId]) createRoom(roomId);
-  const room = rooms[roomId];
+    if (!rooms[roomId]) createRoom(roomId);
+    const room = rooms[roomId];
 
-  joinSocketRoom(roomId);
-  socket.data.currentRoom = roomId;
+    joinSocketRoom(roomId);
+    socket.data.currentRoom = roomId;
 
-  // =====================================
-  //  QUICKPLAY FIX: respect forced roles
-  // =====================================
-  if (forcedRole === "w") {
-    room.white = socket.id;
-    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+    // =====================================
+    //  QUICKPLAY FIX: respect forced roles (ONLY IF VACANT)
+    // =====================================
+    if (forcedRole) {
+      const targetRole = forcedRole === "w" ? "white" : "black";
+      const currentHolder = room[targetRole];
 
-    if (room.black) {
-     // startRoomTimer(roomId);
+      // Check if current holder is actually connected
+      const isOccupied = currentHolder && io.sockets.sockets.has(currentHolder);
+
+      if (!isOccupied) {
+        // Role is free (or holder disconnected), so we can take it
+        if (forcedRole === "w") {
+          room.white = socket.id;
+          socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+        } else {
+          room.black = socket.id;
+          socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+        }
+
+        // Notify others
+        if (room.white && room.black) {
+          io.to(roomId).emit("boardstate", room.chess.fen());
+          io.to(roomId).emit("timers", room.timers);
+        }
+        return;
+      }
+      // If occupied, fall through to normal join logic (ignore forcedRole)
+    }
+
+    // =====================================
+    //  FRIEND ROOM LOGIC (normal join)
+    // =====================================
+    if (room.white === socket.id) {
+      socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+    }
+    else if (room.black === socket.id) {
+      socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+    }
+    else if (!room.white) {
+      room.white = socket.id;
+      socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+
+      if (!room.black) {
+        socket.emit("waiting", {
+          text: "Waiting for your friend to join...",
+          link: `${getBaseUrl(socket.request)}/room/${roomId}`
+        });
+      }
+    }
+    else if (!room.black) {
+      room.black = socket.id;
+
+      io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+      io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+
+      //startRoomTimer(roomId);
       io.to(roomId).emit("boardstate", room.chess.fen());
       io.to(roomId).emit("timers", room.timers);
     }
-    return;
-  }
-
-  if (forcedRole === "b") {
-    room.black = socket.id;
-    socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-
-    if (room.white) {
-     // startRoomTimer(roomId);
-      io.to(roomId).emit("boardstate", room.chess.fen());
-      io.to(roomId).emit("timers", room.timers);
+    else {
+      room.watchers.add(socket.id);
+      socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
+      socket.emit("boardstate", room.chess.fen());
+      socket.emit("timers", room.timers);
     }
-    return;
-  }
 
-  // =====================================
-  //  FRIEND ROOM LOGIC (normal join)
-  // =====================================
-  if (room.white === socket.id) {
-    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-  }
-  else if (room.black === socket.id) {
-    socket.emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
-  }
-  else if (!room.white) {
-    room.white = socket.id;
-    socket.emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
+  });
 
-    if (!room.black) {
-      socket.emit("waiting", {
-        text: "Waiting for your friend to join...",
-        link: `${getBaseUrl(socket.request)}/room/${roomId}`
-      });
-    }
-  }
-  else if (!room.black) {
-    room.black = socket.id;
+  socket.on("resign", roomId => {
+    roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
 
-    io.to(room.white).emit("init", { role: "w", fen: room.chess.fen(), timers: room.timers });
-    io.to(room.black).emit("init", { role: "b", fen: room.chess.fen(), timers: room.timers });
+    const room = rooms[roomId];
+    let winner = "";
+    if (socket.id === room.white) winner = "Black";
+    else if (socket.id === room.black) winner = "White";
 
-    //startRoomTimer(roomId);
-    io.to(roomId).emit("boardstate", room.chess.fen());
-    io.to(roomId).emit("timers", room.timers);
-  }
-  else {
-    room.watchers.add(socket.id);
-    socket.emit("init", { role: null, fen: room.chess.fen(), timers: room.timers });
-    socket.emit("boardstate", room.chess.fen());
-    socket.emit("timers", room.timers);
-  }
+    io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
+    stopRoomTimer(roomId);
+  });
 
-});
+  // ---------- DRAW OFFER ----------
+  socket.on("offerDraw", roomId => {
+    roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
 
-socket.on("resign", roomId => {
-  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
+    const room = rooms[roomId];
+    const opponent =
+      socket.id === room.white ? room.black :
+        socket.id === room.black ? room.white : null;
 
-  const room = rooms[roomId];
-  let winner = "";
-  if (socket.id === room.white) winner = "Black";
-  else if (socket.id === room.black) winner = "White";
+    if (opponent) io.to(opponent).emit("drawOffered");
+  });
 
-  io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
-  stopRoomTimer(roomId);
-});
+  // ---------- DRAW ACCEPT ----------
+  socket.on("acceptDraw", roomId => {
+    roomId = String(roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
 
-// ---------- DRAW OFFER ----------
-socket.on("offerDraw", roomId => {
-  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
-
-  const room = rooms[roomId];
-  const opponent =
-    socket.id === room.white ? room.black :
-    socket.id === room.black ? room.white : null;
-
-  if (opponent) io.to(opponent).emit("drawOffered");
-});
-
-// ---------- DRAW ACCEPT ----------
-socket.on("acceptDraw", roomId => {
-  roomId = String(roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
-
-  io.to(roomId).emit("gameover", "Draw");
-  stopRoomTimer(roomId);
-});
+    io.to(roomId).emit("gameover", "Draw");
+    stopRoomTimer(roomId);
+  });
   // ---------------- Quick Play (enter queue)
   // client emits: socket.emit('enterQuickplay')
   socket.on("enterQuickplay", () => {
@@ -303,10 +306,10 @@ socket.on("acceptDraw", roomId => {
 
     // both sockets should join socket.io room
     waitingSocket.join(roomId);
-socket.join(roomId);
+    socket.join(roomId);
 
-waitingSocket.data.currentRoom = roomId;
-socket.data.currentRoom = roomId;
+    waitingSocket.data.currentRoom = roomId;
+    socket.data.currentRoom = roomId;
     // clear quickWaiting
     quickWaiting = null;
     waitingSocket.data.isInQuickplay = false;
@@ -384,42 +387,42 @@ socket.data.currentRoom = roomId;
   });
 
   socket.on("resign", roomId => {
-  roomId = (roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
-  const room = rooms[roomId];
+    roomId = (roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
+    const room = rooms[roomId];
 
-  const winner = socket.id === room.white ? "Black" : "White";
-  io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
-  stopRoomTimer(roomId);
-});
+    const winner = socket.id === room.white ? "Black" : "White";
+    io.to(roomId).emit("gameover", `${winner} wins (resignation)`);
+    stopRoomTimer(roomId);
+  });
 
-socket.on("offerDraw", roomId => {
-  roomId = (roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
+  socket.on("offerDraw", roomId => {
+    roomId = (roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
 
-  const room = rooms[roomId];
-  const opp = socket.id === room.white ? room.black : room.white;
+    const room = rooms[roomId];
+    const opp = socket.id === room.white ? room.black : room.white;
 
-  if (opp) io.to(opp).emit("drawOffered");
-});
+    if (opp) io.to(opp).emit("drawOffered");
+  });
 
-socket.on("acceptDraw", roomId => {
-  roomId = (roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
+  socket.on("acceptDraw", roomId => {
+    roomId = (roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
 
-  io.to(roomId).emit("gameover", "Draw");
-  stopRoomTimer(roomId);
-});
+    io.to(roomId).emit("gameover", "Draw");
+    stopRoomTimer(roomId);
+  });
 
-socket.on("declineDraw", roomId => {
-  roomId = (roomId || socket.data.currentRoom).toUpperCase();
-  if (!rooms[roomId]) return;
+  socket.on("declineDraw", roomId => {
+    roomId = (roomId || socket.data.currentRoom).toUpperCase();
+    if (!rooms[roomId]) return;
 
-  const room = rooms[roomId];
-  const opp = socket.id === room.white ? room.black : room.white;
+    const room = rooms[roomId];
+    const opp = socket.id === room.white ? room.black : room.white;
 
-  if (opp) io.to(opp).emit("drawDeclined");
-});
+    if (opp) io.to(opp).emit("drawDeclined");
+  });
 
   // ---------------- disconnect handling ----------------
   socket.on("disconnect", () => {

@@ -259,8 +259,8 @@ function renderBoard() {
         cell.classList.add("square", (r + c) % 2 ? "dark" : "light");
         cell.dataset.row = r;
         cell.dataset.col = c;
-        cell.style.left = `${c * 12.5}%`;
-        cell.style.top = `${r * 12.5}%`;
+        cell.style.left = `${c * 80}px`;
+        cell.style.top = `${r * 80}px`;
         // keep cell relative so pieces (if any) can be inside
 
         // Tap-to-tap movement
@@ -372,10 +372,7 @@ function updateBoardPieces(board) {
 function movePieceDOM(from, to, mvResult) {
   const fromSq = document.querySelector(`.square[data-row='${from.r}'][data-col='${from.c}']`);
   const toSq = document.querySelector(`.square[data-row='${to.r}'][data-col='${to.c}']`);
-
-  // DYNAMIC SIZE: Calculate based on current board width
-  const boardWidth = boardEl.getBoundingClientRect().width;
-  const SQUARE_SIZE = boardWidth / 8;
+  const SQUARE_SIZE = 80; // Size of a square in pixels
 
   if (!fromSq || !toSq) return;
 
@@ -416,9 +413,10 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.transform = startTransform;
 
   // Set initial piece dimensions for the clone
-  // Use computed size to match the board
-  floating.style.width = `${SQUARE_SIZE}px`;
-  floating.style.height = `${SQUARE_SIZE}px`;
+  const pieceWidth = img ? img.getBoundingClientRect().width : SQUARE_SIZE;
+  const pieceHeight = img ? img.getBoundingClientRect().height : SQUARE_SIZE;
+  floating.style.width = `${pieceWidth}px`;
+  floating.style.height = `${pieceHeight}px`;
 
   // Append to the board container (the origin for absolute positioning)
   boardEl.appendChild(floating);

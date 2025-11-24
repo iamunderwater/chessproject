@@ -34,8 +34,10 @@ const endSound = new Audio("/sounds/gameover.mp3");
 const checkSound = new Audio("/sounds/check.mp3");
 
 // Format timer
-const fmt = s =>
-  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+const fmt = s => {
+  if (s < 0) s = 0; // Prevent negative timers
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+};
 
 // Piece images
 const pieceImage = p => {
@@ -754,6 +756,30 @@ function safeAttachResignDraw() {
 safeAttachResignDraw();
 setTimeout(safeAttachResignDraw, 250);
 setTimeout(safeAttachResignDraw, 1000);
+
+// -------- ERROR HANDLING --------
+socket.on("error", data => {
+  if (data && data.message) {
+    console.error("Server error:", data.message);
+    if (popupText && popup) {
+      popupText.innerText = data.message;
+      popup.classList.add("show");
+      setTimeout(() => popup.classList.remove("show"), 3000);
+    }
+  }
+});
+
+socket.on("connect_error", (error) => {
+  console.error("Connection error:", error);
+});
+
+socket.on("disconnect", (reason) => {
+  console.log("Disconnected:", reason);
+  if (reason === "io server disconnect") {
+    // Server disconnected, try to reconnect
+    socket.connect();
+  }
+});
 
 // -------- JOIN ROOM ON PAGE LOAD --------
 if (typeof ROOM_ID !== "undefined" && ROOM_ID) {

@@ -318,6 +318,10 @@ function updateBoardPieces(board) {
       const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
       if (!cell) return;
 
+      // If this square is currently receiving an animated piece, skip updates
+      // to avoid creating a duplicate piece before the animation lands.
+      if (cell.classList.contains("animating")) return;
+
       const currentPiece = cell.querySelector(".piece");
 
       // Case 1: Square should be empty
@@ -327,19 +331,15 @@ function updateBoardPieces(board) {
       }
 
       // Case 2: Square has a piece
-      // Check if the current piece matches the new state
       if (currentPiece) {
         const img = currentPiece.querySelector("img");
         const currentSrc = img ? img.getAttribute("src") : "";
         const newSrc = pieceImage(sq);
 
-        // If src matches, it's the same piece type/color, so do nothing (optimization)
-        // We also check if it has the correct classes just in case
+        // Optimization: If piece matches, keep it (don't destroy/recreate)
         if (currentSrc === newSrc && currentPiece.classList.contains(sq.color === "w" ? "white" : "black")) {
           return;
         }
-
-        // If mismatch, remove old piece and let it recreate below
         currentPiece.remove();
       }
 
@@ -370,6 +370,9 @@ function movePieceDOM(from, to, mvResult) {
 
   const piece = fromSq.querySelector(".piece");
   if (!piece) return;
+
+  // Mark target square as animating so updateBoardPieces doesn't interfere
+  toSq.classList.add("animating");
 
   // 1. Calculate Start and End positions (in pixels, relative to the board)
   const x_start = from.c * SQUARE_SIZE;
@@ -440,6 +443,9 @@ function movePieceDOM(from, to, mvResult) {
 
   // 7. After animation, perform cleanup and final DOM update
   setTimeout(() => {
+    // Remove animating flag
+    toSq.classList.remove("animating");
+
     // Promotion logic (modified to use the floating element)
     if (mvResult && mvResult.promotion) {
       const imgEl = floating.querySelector("img");

@@ -396,7 +396,11 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.pointerEvents = "none";
 
   // Set the CSS transition property for transform
-  floating.style.transition = "transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+  floating.style.transition = "transform 80ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+
+  // GHOST FIX: Hide any static piece that might appear in the target square
+  // (e.g. if boardstate update happens during animation)
+  toSq.classList.add("receiving-piece");
 
   // Set initial position using transform: translate(). This is the starting point.
   let startTransform = `translate(${x_start}px, ${y_start}px)`;
@@ -466,6 +470,12 @@ function movePieceDOM(from, to, mvResult) {
     floating.style.zIndex = "";
     floating.style.pointerEvents = "";
 
+    // GHOST FIX: Remove the hiding class
+    toSq.classList.remove("receiving-piece");
+
+    // Clear target square to ensure no duplicate static piece remains
+    toSq.innerHTML = "";
+
     // Append the piece to its final square
     toSq.appendChild(floating);
 
@@ -501,7 +511,7 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 200);
+  }, 80);
 }
 
 // ---------------- HANDLE MOVES ----------------

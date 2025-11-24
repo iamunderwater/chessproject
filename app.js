@@ -161,9 +161,24 @@ io.on("connection", (socket) => {
     } catch (e) {}
   }
 
+  // ---------------- Utility to get base URL (for room link) -------------
+  function getBaseUrl(req) {
+    // req may be undefined when called from socket; try to derive from socket.request
+    const r = req || socket.request;
+    if (!r) return serverAddress();
+    const protocol = r.headers && r.headers["x-forwarded-proto"] ? r.headers["x-forwarded-proto"] : "http";
+    const host = r.headers && r.headers.host ? r.headers.host : `localhost:${process.env.PORT || 3000}`;
+    return `${protocol}://${host}`;
+  }
+
+  function serverAddress() {
+    // fallback
+    return `http://localhost:${process.env.PORT || 3000}`;
+  }
+
   // ---------------- Join an existing room (from room page)
   // client emits: socket.emit('joinRoom', roomId)
-socket.on("joinRoom", data => {
+  socket.on("joinRoom", data => {
   let roomId, forcedRole;
 
   // support both: joinRoom("ABCDE") and joinRoom({ roomId: "ABCDE", role: "w" })
@@ -255,7 +270,7 @@ socket.on("joinRoom", data => {
     socket.emit("timers", room.timers);
   }
 
-});
+  });
 
   // ---------------- Quick Play (enter queue)
   // client emits: socket.emit('enterQuickplay')
@@ -529,21 +544,6 @@ socket.on("joinRoom", data => {
       }
     }
   });
-
-  // ---------------- Utility to get base URL (for room link) -------------
-  function getBaseUrl(req) {
-    // req may be undefined when called from socket; try to derive from socket.request
-    const r = req || socket.request;
-    if (!r) return serverAddress();
-    const protocol = r.headers && r.headers["x-forwarded-proto"] ? r.headers["x-forwarded-proto"] : "http";
-    const host = r.headers && r.headers.host ? r.headers.host : `localhost:${process.env.PORT || 3000}`;
-    return `${protocol}://${host}`;
-  }
-
-  function serverAddress() {
-    // fallback
-    return `http://localhost:${process.env.PORT || 3000}`;
-  }
 });
 
 // -------------------- Tiny view for quickplay (server must have view quickplay.ejs) --------------------

@@ -84,28 +84,39 @@ function clearSelectionUI() {
 
 // ---------------- EVENT ATTACHER ----------------
 function attachPieceEvents(piece, r, c) {
-  // remove previous handlers to avoid duplicates
-  piece.replaceWith(piece.cloneNode(true));
-  const newPiece = piece.parentNode
-    ? piece.parentNode.querySelector(".piece:last-child") || piece
-    : piece;
+  // Create a clone to strip old event listeners
+  const newPiece = piece.cloneNode(true);
 
-  // Select the square this piece is on
-  const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
-  const finalPiece = cell ? cell.querySelector(".piece") : newPiece;
-  if (!finalPiece) return;
+  // Replace the original piece in the DOM with the clone
+  if (piece.parentNode) {
+    piece.replaceWith(newPiece);
+  } else {
+    // If for some reason it's not in the DOM, we can't replace it.
+    // But in our usage, it should always be appended first.
+    // We'll just use the piece passed in (but this implies listeners might stack if not careful, 
+    // though we usually only call this on fresh pieces or after move).
+    // Ideally, we should ensure it's in the DOM.
+  }
+
+  // Now we work with newPiece (which is in the DOM)
+  const finalPiece = newPiece;
 
   // mark draggable depending on role
-  finalPiece.draggable = role && chess.board()[r] && chess.board()[r][c] ? (role === chess.board()[r][c].color) : false;
+  // Use safe check for board state
+  const boardRow = chess.board()[r];
+  const boardSq = boardRow ? boardRow[c] : null;
 
-  // ---- DESKTOP DRAG START (Restored Original Logic) ----
+  const isMyPiece = role && boardSq && (role === boardSq.color);
+  finalPiece.draggable = isMyPiece;
+
+  // ---- DESKTOP DRAG START ----
   finalPiece.addEventListener("dragstart", e => {
     if (!finalPiece.draggable) return;
     dragged = finalPiece;
     source = { row: r, col: c };
     e.dataTransfer.setData("text/plain", "");
 
-    // custom drag image (Your original code restored)
+    // custom drag image
     const img = finalPiece.querySelector("img");
     if (img) {
       const dragImg = img.cloneNode(true);
@@ -136,7 +147,7 @@ function attachPieceEvents(piece, r, c) {
   // ---- TOUCH (mobile) ----
   finalPiece.addEventListener("touchstart", e => {
     e.preventDefault();
-    e.stopPropagation(); // FIX: Stop bubbling to avoid immediate deselect
+    e.stopPropagation();
 
     const sq = chess.board()[r] && chess.board()[r][c];
     if (!sq || role !== sq.color) return;
@@ -145,7 +156,6 @@ function attachPieceEvents(piece, r, c) {
     touchDrag.startSquare = { row: r, col: c };
     touchDrag.lastTargetSquare = null;
 
-    // Your original touch floating logic
     const img = finalPiece.querySelector("img");
     const floating = img.cloneNode(true);
     floating.style.position = "fixed";
@@ -158,8 +168,8 @@ function attachPieceEvents(piece, r, c) {
     document.body.appendChild(floating);
     touchDrag.floating = floating;
 
-    highlightMoves(r, c); // Highlight Square + Dots
-    selectedSource = { row: r, col: c }; // Set selection state
+    highlightMoves(r, c);
+    selectedSource = { row: r, col: c };
   }, { passive: false });
 
   finalPiece.addEventListener("touchmove", e => {
@@ -185,7 +195,7 @@ function attachPieceEvents(piece, r, c) {
   finalPiece.addEventListener("touchend", e => {
     if (!touchDrag.active) return;
     e.preventDefault();
-    e.stopPropagation(); // FIX: Stop bubbling
+    e.stopPropagation();
 
     let target = touchDrag.lastTargetSquare;
     if (!target) {
@@ -202,13 +212,10 @@ function attachPieceEvents(piece, r, c) {
 
     if (touchDrag.floating) touchDrag.floating.remove();
 
-    // Check if moved to different square
     if (target && (target.row !== touchDrag.startSquare.row || target.col !== touchDrag.startSquare.col)) {
       handleMove(touchDrag.startSquare, target);
       clearSelectionUI();
     }
-
-    // If tapped (same square), we do nothing here (keep highlights)
 
     touchDrag = {
       active: false,
@@ -218,11 +225,10 @@ function attachPieceEvents(piece, r, c) {
     };
   }, { passive: false });
 
-  // ---- CLICK SELECT (Fixed for Bubble Issue) ----
+  // ---- CLICK SELECT ----
   finalPiece.addEventListener("click", (e) => {
     const sq = chess.board()[r] && chess.board()[r][c];
 
-    // Only stop propagation if we are selecting our own piece
     if (sq && role === sq.color) {
       e.stopPropagation();
 
@@ -231,10 +237,9 @@ function attachPieceEvents(piece, r, c) {
       } else {
         clearSelectionUI();
         selectedSource = { row: r, col: c };
-        highlightMoves(r, c); // Highlights square yellow
+        highlightMoves(r, c);
       }
     }
-    // If it's an opponent's piece, let the event bubble to the square (Capture logic)
   });
 }
 
@@ -313,17 +318,40 @@ function renderBoard() {
 }
 
 function updateBoardPieces(board) {
-  // Remove all current piece elements
-  document.querySelectorAll(".piece").forEach(p => p.remove());
-
-  // Recreate piece DOM in correct squares
+  // Diffing logic: only update squares that changed
   board.forEach((row, r) => {
     row.forEach((sq, c) => {
-      if (!sq) return;
-
       const cell = document.querySelector(`.square[data-row='${r}'][data-col='${c}']`);
       if (!cell) return;
 
+      const existingPiece = cell.querySelector(".piece");
+
+      // Case 1: Empty square in new state
+      if (!sq) {
+        if (existingPiece) existingPiece.remove();
+        return;
+      }
+
+      // Case 2: Piece exists in new state
+      // Check if existing piece matches
+      if (existingPiece) {
+        const img = existingPiece.querySelector("img");
+        const currentSrc = img ? img.getAttribute("src") : "";
+        const newSrc = pieceImage(sq);
+
+        // If same piece (color & type), do nothing
+        if (currentSrc === newSrc) {
+          // Ensure draggable is correct (in case turn changed or role changed, though usually piece change implies that)
+          const isMyPiece = role && sq.color === role;
+          existingPiece.draggable = isMyPiece;
+          return;
+        }
+
+        // If different piece, remove old and add new (e.g. capture/promotion)
+        existingPiece.remove();
+      }
+
+      // Add new piece
       const piece = document.createElement("div");
       piece.classList.add("piece", sq.color === "w" ? "white" : "black");
 
@@ -368,7 +396,7 @@ function movePieceDOM(from, to, mvResult) {
   floating.style.pointerEvents = "none";
 
   // Set the CSS transition property for transform
-  floating.style.transition = "transform 160ms cubic-bezier(.22,.9,.28,1)";
+  floating.style.transition = "transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
   // Set initial position using transform: translate(). This is the starting point.
   let startTransform = `translate(${x_start}px, ${y_start}px)`;
@@ -473,7 +501,7 @@ function movePieceDOM(from, to, mvResult) {
         }
       }
     }
-  }, 180);
+  }, 200);
 }
 
 // ---------------- HANDLE MOVES ----------------
@@ -511,7 +539,7 @@ function updateTimers(t) {
 socket.on("matched", d => {
   if (d && d.roomId && d.role) {
     // save role for joinRoom
-    localStorage.setItem("quickplayRole", d.role);
+    sessionStorage.setItem("quickplayRole", d.role);
 
     window.location = `/room/${d.roomId}`;
   }
@@ -535,7 +563,7 @@ socket.on("waiting", d => {
 
 // -------- INITIAL SETUP --------
 socket.on("init", data => {
-  localStorage.removeItem("quickplayRole");
+  sessionStorage.removeItem("quickplayRole");
   role = data.role;
 
   const waitingEl = document.getElementById("waiting");
@@ -576,6 +604,9 @@ socket.on("init", data => {
 
 // -------- BOARD UPDATE --------
 socket.on("boardstate", fen => {
+  // OPTIMIZATION: If we already have this state (e.g. from local move), ignore
+  if (chess.fen() === fen) return;
+
   chess.load(fen);
   renderBoard();
   clearSelectionUI();
@@ -757,6 +788,6 @@ setTimeout(safeAttachResignDraw, 1000);
 
 // -------- JOIN ROOM ON PAGE LOAD --------
 if (typeof ROOM_ID !== "undefined" && ROOM_ID) {
-  const quickRole = localStorage.getItem("quickplayRole"); // "w" or "b" or null
+  const quickRole = sessionStorage.getItem("quickplayRole"); // "w" or "b" or null
   socket.emit("joinRoom", { roomId: ROOM_ID, role: quickRole });
 }
